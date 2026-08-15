@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   BarChart3,
   BookOpen,
+  Camera,
   Check,
   ChevronRight,
   ClipboardList,
@@ -14,6 +15,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Save,
   Target,
   Trophy,
   User,
@@ -26,6 +28,14 @@ import { getStudentChallenges, type StudentChallenge } from "@/lib/api/student/c
 import { getMyWeeklyComments, type StudentWeeklyComment } from "@/lib/api/student/comments";
 import { getEffectiveStudentTracks, getStudentActivityRouteMap } from "@/lib/api/student/curriculum";
 import { getStudentEnrollmentContext, joinClassroomByCode, type EnrollmentContext } from "@/lib/api/student/enrollment";
+import {
+  getMyStudentProfile,
+  STUDENT_AVATAR_MAX_BYTES,
+  STUDENT_AVATAR_TYPES,
+  updateMyStudentProfile,
+  uploadMyStudentAvatar,
+  type StudentProfileDetails,
+} from "@/lib/api/student/profile";
 import { getStudentProgress, type ActivityProgress } from "@/lib/api/student/progress";
 import { getClassroomTypingLeaderboard, getMyTypingAttempts, summarizeTypingAttempts, type TypingAttempt, type TypingSummary } from "@/lib/api/student/typing";
 
@@ -70,7 +80,7 @@ const ICONS: Record<string, typeof BookOpen> = { Monitor: BookOpen, FileText: Cl
 
 export default function StudentDashboard() {
   const router = useRouter();
-  const { profile, signOut } = useAuth();
+  const { profile, refreshProfile, signOut } = useAuth();
   const [view, setView] = useState<View>("overview");
   const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -78,14 +88,27 @@ export default function StudentDashboard() {
   const [joinCode, setJoinCode] = useState("");
   const [joining, setJoining] = useState(false);
   const [state, setState] = useState<DashboardState>(emptyState);
+  const [studentProfile, setStudentProfile] = useState<StudentProfileDetails | null>(null);
+  const [profileError, setProfileError] = useState("");
 
-  const studentName = profile?.full_name?.trim() || profile?.username || "Student";
+  const studentName = studentProfile?.fullName || profile?.full_name?.trim() || profile?.username || "Student";
   const initials = studentName
     .split(/\s+/)
     .map((part) => part[0])
     .join("")
     .slice(0, 2)
     .toUpperCase() || "S";
+
+  const loadStudentProfile = useCallback(async () => {
+    const result = await getMyStudentProfile();
+    if (result.error) {
+      setStudentProfile(null);
+      setProfileError(result.error);
+      return;
+    }
+    setStudentProfile(result.data);
+    setProfileError("");
+  }, []);
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
@@ -132,6 +155,11 @@ export default function StudentDashboard() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadDashboard();
   }, [loadDashboard]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadStudentProfile();
+  }, [loadStudentProfile]);
 
   useEffect(() => {
     if (!notice) return;
@@ -195,7 +223,7 @@ export default function StudentDashboard() {
         </nav>
         <div className="mt-auto rounded-2xl bg-primary-foreground/10 p-4">
           <button onClick={() => changeView("profile")} className="flex w-full items-center gap-3 text-left">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-bold text-primary-foreground">{initials}</span>
+            <AvatarCircle initials={initials} avatarUrl={studentProfile?.avatarUrl} className="h-10 w-10 text-sm" />
             <span className="min-w-0">
               <span className="block truncate text-sm font-bold">{studentName}</span>
               <span className="block truncate text-xs text-primary-foreground/70">{state.enrollment?.classroomName ?? "Exploration mode"}</span>
@@ -225,7 +253,7 @@ export default function StudentDashboard() {
               <br />
               <b className="text-foreground">{studentName}</b>
             </span>
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-sm font-bold text-primary-foreground">{initials}</span>
+            <AvatarCircle initials={initials} avatarUrl={studentProfile?.avatarUrl} className="h-10 w-10 text-sm" />
           </button>
         </header>
         <div className="mx-auto max-w-360 px-5 py-7 sm:px-9 sm:py-10">
@@ -235,7 +263,20 @@ export default function StudentDashboard() {
           {view === "assignments" && <Assignments enrollment={state.enrollment} assignments={state.assignments} go={changeView} />}
           {view === "challenges" && <Challenges />}
           {view === "progress" && <Progress state={state} totals={totals} attendancePct={attendancePct} />}
-          {view === "profile" && <ProfilePanel studentName={studentName} initials={initials} enrollment={state.enrollment} />}
+          {view === "profile" && (
+            <ProfilePanel
+              studentName={studentName}
+              initials={initials}
+              enrollment={state.enrollment}
+              profileDetails={studentProfile}
+              profileError={profileError}
+              onProfileChanged={(nextProfile) => {
+                setStudentProfile(nextProfile);
+                setProfileError("");
+                void refreshProfile();
+              }}
+            />
+          )}
         </div>
       </main>
     </div>
@@ -411,15 +452,131 @@ function Progress({ state, totals, attendancePct }: { state: DashboardState; tot
   );
 }
 
-function ProfilePanel({ studentName, initials, enrollment }: { studentName: string; initials: string; enrollment: EnrollmentContext | null }) {
+function ProfilePanel({
+  studentName,
+  initials,
+  enrollment,
+  profileDetails,
+  profileError,
+  onProfileChanged,
+}: {
+  studentName: string;
+  initials: string;
+  enrollment: EnrollmentContext | null;
+  profileDetails: StudentProfileDetails | null;
+  profileError: string;
+  onProfileChanged: (profile: StudentProfileDetails) => void;
+}) {
+  const [fullName, setFullName] = useState(studentName);
+  const [bio, setBio] = useState("");
+  const [gradeClass, setGradeClass] = useState("");
+  const [termGoals, setTermGoals] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    if (!profileDetails) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFullName(profileDetails.fullName);
+    setBio(profileDetails.bio ?? "");
+    setGradeClass(profileDetails.gradeClass ?? "");
+    setTermGoals(profileDetails.termGoals ?? "");
+  }, [profileDetails]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setMessage("");
+    const result = await updateMyStudentProfile({ fullName, bio, gradeClass, termGoals });
+    setSaving(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    if (!result.data) return;
+    onProfileChanged(result.data);
+    setMessage("Profile saved.");
+  }
+
+  async function uploadAvatar(file: File | null) {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    setMessage("");
+    const result = await uploadMyStudentAvatar(file, profileDetails?.avatarPath);
+    setUploading(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    if (!result.data) return;
+    onProfileChanged(result.data);
+    setMessage("Avatar updated.");
+  }
+
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,.75fr)_minmax(0,1.25fr)]">
       <section className="rounded-xl border border-border bg-card p-6 text-center shadow-sm">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-accent text-2xl font-bold text-primary-foreground">{initials}</div>
+        <AvatarCircle initials={initials} avatarUrl={profileDetails?.avatarUrl} className="mx-auto h-20 w-20 text-2xl" />
         <h2 className="mt-4 font-display text-2xl font-bold text-foreground">{studentName}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">Profile editing for bio, goals, grade, and avatar needs the next SQL-backed profile-fields step.</p>
+        <p className="mt-2 text-sm text-muted-foreground">{profileDetails?.username ? `Username: ${profileDetails.username}` : "Student profile"}</p>
+        <label className="mt-5 inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-bold text-foreground hover:border-primary">
+          <Camera size={16} />
+          {uploading ? "Uploading..." : "Change avatar"}
+          <input
+            type="file"
+            accept={STUDENT_AVATAR_TYPES.join(",")}
+            className="sr-only"
+            disabled={uploading}
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              event.target.value = "";
+              if (file && file.size > STUDENT_AVATAR_MAX_BYTES) {
+                setError("Avatar image must be 2 MB or smaller.");
+                return;
+              }
+              void uploadAvatar(file);
+            }}
+          />
+        </label>
+        <p className="mt-3 text-xs leading-5 text-muted-foreground">JPG, PNG, or WebP. Maximum 2 MB.</p>
       </section>
-      <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
+      <form onSubmit={submit} className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">About me</p>
+            <h3 className="mt-2 font-display text-xl font-bold text-foreground">Edit profile</h3>
+          </div>
+          <button disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-60">
+            <Save size={16} />
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+        {(profileError || error) && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error || profileError}</p>}
+        {message && <p className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm font-semibold text-green-800">{message}</p>}
+        <div className="mt-5 grid gap-4">
+          <label className="grid gap-1 text-sm font-semibold text-foreground">
+            Display name
+            <input value={fullName} onChange={(event) => setFullName(event.target.value)} maxLength={120} className="h-11 rounded-lg border border-border bg-background px-3 text-sm font-normal outline-none focus:border-primary" />
+          </label>
+          <label className="grid gap-1 text-sm font-semibold text-foreground">
+            Grade or class
+            <input value={gradeClass} onChange={(event) => setGradeClass(event.target.value)} maxLength={80} placeholder="Grade 7, Form 1, Class 6..." className="h-11 rounded-lg border border-border bg-background px-3 text-sm font-normal outline-none focus:border-primary" />
+          </label>
+          <label className="grid gap-1 text-sm font-semibold text-foreground">
+            Bio
+            <textarea value={bio} onChange={(event) => setBio(event.target.value)} maxLength={500} rows={4} placeholder="Tell your trainer a little about you." className="resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal leading-6 outline-none focus:border-primary" />
+          </label>
+          <label className="grid gap-1 text-sm font-semibold text-foreground">
+            My term goal
+            <textarea value={termGoals} onChange={(event) => setTermGoals(event.target.value)} maxLength={500} rows={4} placeholder="What would you like to achieve this term?" className="resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal leading-6 outline-none focus:border-primary" />
+          </label>
+        </div>
+      </form>
+      <section className="rounded-xl border border-border bg-card p-6 shadow-sm xl:col-span-2">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Classroom information</p>
         {enrollment ? (
           <div className="mt-4 grid gap-3 text-sm">
@@ -433,6 +590,18 @@ function ProfilePanel({ studentName, initials, enrollment }: { studentName: stri
         )}
       </section>
     </div>
+  );
+}
+
+function AvatarCircle({ initials, avatarUrl, className = "" }: { initials: string; avatarUrl?: string | null; className?: string }) {
+  return (
+    <span
+      className={`flex shrink-0 items-center justify-center rounded-full bg-accent bg-cover bg-center font-bold text-primary-foreground ${className}`}
+      style={avatarUrl ? { backgroundImage: `url("${avatarUrl}")` } : undefined}
+      aria-label="Student avatar"
+    >
+      {!avatarUrl && initials}
+    </span>
   );
 }
 
