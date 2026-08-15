@@ -25,6 +25,7 @@ import {
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Shell } from "./site-shell";
 import { tracks } from "@/lib/curriculum";
 import { getApprovedProjects } from "@/lib/api/student/projects";
@@ -1054,6 +1055,19 @@ function CBC() {
 }
 
 export default function PyGolfersApp({ page = "home" }: { page?: string }) {
+  const router = useRouter();
+  const { loading, profile } = useAuth();
+
+  useEffect(() => {
+    if (page === "home" && !loading && profile?.role === "student") {
+      router.replace("/student");
+    }
+  }, [loading, page, profile?.role, router]);
+
+  if (page === "home" && !loading && profile?.role === "student") {
+    return <main className="flex min-h-screen items-center justify-center bg-background p-6 text-sm text-muted-foreground">Opening your student dashboard...</main>;
+  }
+
   return page === "challenges" ? (
     <Challenges />
   ) : page === "projects" ? (

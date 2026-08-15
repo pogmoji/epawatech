@@ -1,6 +1,6 @@
 import { ProtectedRoute } from "@/components/protected-route";
-import LearnPage from "@/components/learn/learn-page";
+import StudentDashboard from "@/components/student/student-dashboard";
 
 export default function StudentPage() {
-  return <ProtectedRoute role="student"><LearnPage /></ProtectedRoute>;
+  return <ProtectedRoute role="student"><StudentDashboard /></ProtectedRoute>;
 }

@@ -136,7 +136,7 @@ export function LoginPage() {
     if (!profile) return;
     if (profile.role === "student") {
       queueStudentWelcome(profile.id);
-      router.replace("/");
+      router.replace("/student");
       return;
     }
     router.replace(dashboardPath(profile));
@@ -379,7 +379,7 @@ function SignupForm({ role }: { role: "student" | "trainer" }) {
         );
       const profile = await refreshProfile(data.user.id);
       queueStudentWelcome(profile?.id ?? data.user.id);
-      router.replace("/");
+      router.replace("/student");
       return;
     }
     const { data, error: signUpError } = await supabase.auth.signUp({
