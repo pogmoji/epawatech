@@ -8,19 +8,15 @@ import {
   ChevronRight,
   Code2,
   GraduationCap,
-  Heart,
   LayoutDashboard,
   Mail,
   MapPin,
-  Play,
   Search,
   Sparkles,
   Trophy,
-  Users,
   Phone,
-  Eye,
-  GitFork,
   Target,
+  Video,
 } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -29,39 +25,8 @@ import { useRouter } from "next/navigation";
 import { Shell } from "./site-shell";
 import { tracks } from "@/lib/curriculum";
 import { getApprovedProjects } from "@/lib/api/student/projects";
-import { getStudentEnrollmentContext } from "@/lib/api/student/enrollment";
-import { getStudentChallenges, type StudentChallenge } from "@/lib/api/student/challenges";
+import { getPublicUniversalChallengeRoadmap, type ChallengeRoadmapLevel } from "@/lib/api/student/universal-challenges";
 import { useAuth } from "@/components/auth-provider";
-
-const projects = [
-  {
-    title: "My First Calculator",
-    author: "Amani K.",
-    language: "Python",
-    color: "bg-primary/10",
-    likes: 24,
-    remixes: 8,
-    code: "def add(a, b):\n  return a + b\n\nprint(add(4, 7))",
-  },
-  {
-    title: "Turtle Garden",
-    author: "Brian O.",
-    language: "Python Turtle",
-    color: "bg-accent/20",
-    likes: 41,
-    remixes: 12,
-    code: "for petal in range(8):\n  turtle.circle(30)\n  turtle.left(45)",
-  },
-  {
-    title: "Rainbow Button",
-    author: "Zuri M.",
-    language: "HTML / CSS / JS",
-    color: "bg-primary/10",
-    likes: 18,
-    remixes: 5,
-    code: '<button class="rainbow">\n  Click me!\n</button>',
-  },
-];
 
 function Button({
   children,
@@ -587,69 +552,76 @@ function Home() {
 }
 
 function Challenges() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState("Newest First");
   const [page, setPage] = useState(1);
-  const [assignedChallenges, setAssignedChallenges] = useState<StudentChallenge[]>([]);
+  const [roadmap, setRoadmap] = useState<ChallengeRoadmapLevel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     async function loadChallenges() {
-      if (!user) {
-        setAssignedChallenges([]);
-        setLoading(false);
-        return;
-      }
-
       setLoading(true);
       setError("");
-      const contextRes = await getStudentEnrollmentContext();
-      if (contextRes.error || !contextRes.data) {
-        setAssignedChallenges([]);
-        setError(contextRes.error || "No active classroom enrollment found.");
+      const result = await getPublicUniversalChallengeRoadmap();
+      if (result.error || !result.data) {
+        setRoadmap([]);
+        setError(result.error || "Failed to load universal challenges.");
         setLoading(false);
         return;
       }
 
-      const challengeRes = await getStudentChallenges(contextRes.data.classroomId);
-      if (challengeRes.error || !challengeRes.data) {
-        setAssignedChallenges([]);
-        setError(challengeRes.error || "Failed to load assigned challenges.");
-        setLoading(false);
-        return;
-      }
-
-      setAssignedChallenges(challengeRes.data);
+      setRoadmap(result.data);
       setLoading(false);
     }
 
     void loadChallenges();
-  }, [user]);
+  }, []);
 
   const filtered = useMemo(
     () =>
-      assignedChallenges
-        .filter(
-          (c) =>
-            (!query ||
-              `${c.title} ${c.moduleTitle} ${c.activityType}`
-                .toLowerCase()
-                .includes(query.toLowerCase())),
+      roadmap
+        .flatMap((level) => level.challenges.map((challenge) => ({ ...challenge, levelName: level.name, levelOrder: level.sortOrder, difficulty: level.difficulty })))
+        .filter((challenge) =>
+          !query || `${challenge.title} ${challenge.description} ${challenge.instructions} ${challenge.levelName}`
+            .toLowerCase()
+            .includes(query.toLowerCase()),
         )
-        .sort((a, b) =>
-          sort === "Due date"
-            ? (a.dueDate || "9999-12-31").localeCompare(b.dueDate || "9999-12-31")
-            : new Date(b.assignedAt).getTime() - new Date(a.assignedAt).getTime(),
-        ),
-    [assignedChallenges, query, sort],
+        .sort((a, b) => a.levelOrder - b.levelOrder || a.sortOrder - b.sortOrder),
+    [roadmap, query],
   );
+  const pageSize = 6;
+  const pagedChallenges = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const isStudent = user && profile?.role === "student";
 
   return (
     <Shell>
       <div className="mx-auto max-w-295 px-5 py-14 sm:px-10 sm:py-20">
-        <SectionTitle title="Coding Challenges" />
+        <SectionTitle
+          eyebrow="Universal challenges"
+          title="Coding Challenges"
+          text="Anyone can try these challenges. Register as a student to save progress and unlock levels in your dashboard."
+        />
+        <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50 p-5 text-blue-950 shadow-sm">
+          <h3 className="font-display text-xl font-bold">
+            {isStudent ? "Want saved progress?" : "Try now. Save later."}
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-blue-900">
+            {isStudent
+              ? "Open your Student Dashboard to save challenge progress and follow the Easy to Extreme unlock path."
+              : "Visitors can read and attempt every published challenge here, but progress is not saved unless you register or sign in as a student."}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {isStudent ? (
+              <Link href="/student" className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground">Open Student Dashboard</Link>
+            ) : (
+              <>
+                <Link href="/signup/student" className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground">Register as student</Link>
+                <Link href="/login" className="rounded-xl border border-blue-200 bg-white px-4 py-2 text-sm font-bold text-primary">Sign in</Link>
+              </>
+            )}
+          </div>
+        </div>
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
           <label className="flex flex-1 items-center gap-3 rounded-xl border border-border bg-card px-4">
             <Search size={18} className="text-muted-foreground" />
@@ -660,79 +632,59 @@ function Challenges() {
               className="w-full bg-transparent py-3 text-sm outline-none"
             />
           </label>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-            className="rounded-xl border border-border bg-card px-4 py-3 text-sm"
-          >
-            <option>Newest First</option>
-            <option>Due date</option>
-          </select>
         </div>
 
-        {!user && (
-          <div className="mt-8 rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
-            <h3 className="font-display text-xl font-bold text-code-bg">Sign in to see your assigned challenges</h3>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Challenges are assigned by your trainer to your classroom. We no longer show prototype challenge data here.
-            </p>
-            <Link href="/login" className="mt-4 inline-flex rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground">
-              Sign in
-            </Link>
-          </div>
+        {loading && (
+          <p className="py-16 text-center text-muted-foreground">Loading challenges...</p>
         )}
 
-        {user && loading && (
-          <p className="py-16 text-center text-muted-foreground">Loading assigned challenges…</p>
-        )}
-
-        {user && error && !loading && (
+        {error && !loading && (
           <p className="py-16 text-center text-muted-foreground">{error}</p>
         )}
 
         <div className="mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {user && !loading && !error && filtered.slice((page - 1) * 6, page * 6).map((c, i) => (
+          {!loading && !error && pagedChallenges.map((challenge, i) => (
             <motion.article
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              key={c.id}
+              key={challenge.id}
               transition={{ delay: i * 0.04 }}
               className="rounded-2xl border border-border bg-card p-6 shadow-sm"
             >
               <div className="flex items-center justify-between">
                 <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">
-                  {c.activityType.replaceAll("-", " ")}
+                  {challenge.levelName}
                 </span>
                 <span className="rounded-full bg-accent px-2.5 py-1 text-xs font-bold">
-                  Assigned
+                  {challenge.difficulty}
                 </span>
               </div>
               <h3 className="mt-5 font-display text-xl font-bold text-code-bg">
-                {c.title}
+                {challenge.title}
               </h3>
-              <p className="mt-2 min-h-12 text-sm leading-6 text-muted-foreground">
-                {c.moduleTitle}
+              <p className="mt-2 min-h-12 text-sm leading-6 text-muted-foreground">{challenge.description || "No description yet."}</p>
+              {challenge.instructions && (
+                <p className="mt-4 line-clamp-5 rounded-xl bg-muted p-3 text-sm leading-6 text-muted-foreground">{challenge.instructions}</p>
+              )}
+              <p className="mt-4 border-t border-border pt-4 text-xs font-semibold text-muted-foreground">
+                Visitor mode: progress is not saved.
               </p>
-              <div className="mt-5 flex items-center justify-between border-t border-border pt-4 text-xs">
-                <span className="text-muted-foreground">
-                  Due: {c.dueDate ? new Date(c.dueDate).toLocaleDateString() : "No due date"}
-                </span>
-              </div>
-              <Link href={`/learn/${c.moduleSlug}/${c.lessonSlug}`}>
-                <Button primary className="mt-5 w-full py-2">
-                  Start Challenge{" "}
-                  <ArrowRight size={15} className="ml-1 inline" />
-                </Button>
-              </Link>
+              {!isStudent && (
+                <Link href="/signup/student">
+                  <Button primary className="mt-5 w-full py-2">
+                    Register to save progress <ArrowRight size={15} className="ml-1 inline" />
+                  </Button>
+                </Link>
+              )}
             </motion.article>
           ))}
         </div>
-        {user && !loading && !error && filtered.length === 0 && (
+        {!loading && !error && filtered.length === 0 && (
           <p className="py-16 text-center text-muted-foreground">
-            No assigned challenges found.
+            No published challenges found.
           </p>
         )}
-        {user && !loading && !error && filtered.length > 6 && (
+        {!loading && !error && filtered.length > pageSize && (
         <div className="mt-10 flex items-center justify-center gap-3">
           <button
             onClick={() => setPage(Math.max(1, page - 1))}
@@ -744,7 +696,7 @@ function Challenges() {
           <span className="text-sm font-semibold">Page {page}</span>
           <button
             onClick={() => setPage(page + 1)}
-            disabled={filtered.length <= page * 6}
+            disabled={filtered.length <= page * pageSize}
             className="rounded-lg border border-border p-2 disabled:opacity-40"
             aria-label="Next page"
           >
@@ -758,94 +710,62 @@ function Challenges() {
 }
 
 function Projects() {
-  const [filter, setFilter] = useState("All");
-  const [liked, setLiked] = useState<string[]>([]);
-  const shown =
-    filter === "All" ? projects : projects.filter((p) => p.language === filter);
+  const [approvedProjects, setApprovedProjects] = useState<ShowcaseProject[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadProjects() {
+      const result = await getApprovedProjects();
+      setApprovedProjects((result.data ?? []) as ShowcaseProject[]);
+      setLoading(false);
+    }
+
+    void loadProjects();
+  }, []);
 
   return (
     <Shell>
       <div className="mx-auto max-w-295 px-5 py-14 sm:px-10 sm:py-20">
         <SectionTitle
-          eyebrow="Playground showcase"
+          eyebrow="Student showcase"
           title="Projects built by ePawatech"
-          text="Browse published playground work by language. Like, favorite, or remix from each card."
+          text="Approved student projects will appear here after review."
         />
-        <div className="mt-10 flex justify-center gap-2">
-          {["All", "Python", "Python Turtle", "HTML / CSS / JS"].map((x) => (
-            <button
-              key={x}
-              onClick={() => setFilter(x)}
-              className={`rounded-xl px-4 py-2 text-sm font-bold ${
-                filter === x
-                  ? "bg-primary text-primary-foreground"
-                  : "border border-border bg-card"
-              }`}
-            >
-              {x}
-            </button>
-          ))}
-        </div>
-        <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {shown.map((p) => (
+        {loading ? (
+          <p className="py-16 text-center text-muted-foreground">Loading projects...</p>
+        ) : approvedProjects.length ? (
+          <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {approvedProjects.map((project) => (
             <article
-              key={p.title}
+              key={project.id}
               className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
             >
-              <div className={`h-48 ${p.color} p-5`}>
-                <pre className="h-full overflow-hidden rounded-xl bg-code-bg p-4 font-mono text-xs leading-5 text-accent">
-                  <code>{p.code}</code>
-                </pre>
+              <div className="aspect-video bg-muted">
+                {project.image_url ? (
+                  <img src={project.image_url} alt="" className="h-full w-full object-cover" />
+                ) : null}
               </div>
               <div className="p-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-display text-xl font-bold text-code-bg">
-                      {p.title}
-                    </h3>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      by {p.author} · {p.language}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() =>
-                      setLiked((v) =>
-                        v.includes(p.title)
-                          ? v.filter((x) => x !== p.title)
-                          : [...v, p.title],
-                      )
-                    }
-                    aria-label={`Like ${p.title}`}
-                    className="rounded-lg p-2 text-primary hover:bg-primary/10"
-                  >
-                    <Heart
-                      size={19}
-                      fill={liked.includes(p.title) ? "currentColor" : "none"}
-                    />
-                  </button>
-                </div>
-                <div className="mt-5 flex items-center gap-4 text-xs text-muted-foreground">
-                  <span>
-                    <Heart size={14} className="mr-1 inline" />
-                    {p.likes + (liked.includes(p.title) ? 1 : 0)}
-                  </span>
-                  <span>
-                    <GitFork size={14} className="mr-1 inline" />
-                    {p.remixes} remixes
-                  </span>
-                  <button className="ml-auto hover:text-primary">
-                    <Eye size={14} className="mr-1 inline" />
-                    Preview
-                  </button>
-                </div>
-                <Button primary className="mt-5 w-full py-2">
-                  <GitFork size={15} className="mr-2 inline" />
-                  Remix
-                </Button>
+                <h3 className="font-display text-xl font-bold text-code-bg">{project.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{project.description}</p>
+                {project.video_url && (
+                  <a href={project.video_url} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-primary">
+                    <Video size={17} />
+                    Watch video
+                  </a>
+                )}
               </div>
             </article>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mx-auto mt-10 max-w-xl rounded-2xl border border-dashed border-border bg-card p-8 text-center shadow-sm">
+            <h3 className="font-display text-xl font-bold text-code-bg">Nothing is here yet.</h3>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Approved student projects will appear here once the first project is reviewed.
+            </p>
+          </div>
+        )}
       </div>
     </Shell>
   );

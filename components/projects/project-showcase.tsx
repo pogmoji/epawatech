@@ -23,7 +23,13 @@ const Youtube = Video;
 const YOUTUBE_URL =
   /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)[\w-]{11}(?:[?&].*)?$/;
 
-export default function ProjectShowcase() {
+export default function ProjectShowcase({
+  mode = "public",
+  embedded = false,
+}: {
+  mode?: "public" | "student";
+  embedded?: boolean;
+}) {
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [title, setTitle] = useState("");
@@ -128,96 +134,101 @@ export default function ProjectShowcase() {
       setSubmitting(false);
     }
   }
-  return (
-    <Shell>
-      <main className="mx-auto max-w-6xl px-5 py-14 sm:px-10 sm:py-20">
+  const content = (
+    <main className={embedded ? "" : "mx-auto max-w-6xl px-5 py-14 sm:px-10 sm:py-20"}>
         <div className="max-w-2xl">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">
             MODULE 8
           </p>
           <h1 className="mt-2 font-display text-3xl font-bold text-code-bg sm:text-4xl">
-            Final Projects & Showcase
+            {mode === "student" ? "Final Projects & Showcase" : "Student Project Showcase"}
           </h1>
           <p className="mt-4 leading-7 text-muted-foreground">
-            Submit a photo of your project and an optional YouTube link. Every
-            submission is reviewed before it appears in the public showcase.
+            {mode === "student"
+              ? "Submit a photo of your Module 8 project and an optional YouTube link. Every submission is reviewed before it appears publicly."
+              : "Approved student projects will appear here after trainers or admins review them."}
           </p>
         </div>
-        <form
-          onSubmit={submit}
-          className="mt-10 max-w-2xl space-y-5 rounded-2xl border border-border bg-card p-6 shadow-sm"
-        >
-          <h2 className="font-display text-xl font-bold text-code-bg">
-            Submit your project
-          </h2>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={100}
-            placeholder="Project title"
-            className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none focus:border-primary"
-          />
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            maxLength={800}
-            placeholder="What did you make?"
-            className="min-h-28 w-full rounded-xl border border-border bg-background p-4 text-sm outline-none focus:border-primary"
-          />
-          <label className="block rounded-xl border border-dashed border-border p-5 text-sm font-semibold">
-            <span className="flex items-center gap-2">
-              <ImagePlus size={18} className="text-primary" />
-              {file
-                ? file?.name
-                : "Choose a JPG, PNG, or WebP image (max 5 MB)"}
-            </span>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={chooseFile}
-              className="mt-3 block text-xs font-normal"
-            />
-          </label>
-          <label className="block text-sm font-semibold">
-            Optional YouTube video URL
-            <input
-              value={videoUrl}
-              onChange={(e) => setVideoUrl(e.target.value)}
-              placeholder="https://youtube.com/watch?v=..."
-              className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-normal outline-none focus:border-primary"
-            />
-          </label>
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          {saved && (
-            <p className="flex items-center gap-2 text-sm font-semibold text-primary">
-              <CheckCircle2 size={17} /> Submitted for review. It will appear
-              after approval.
-            </p>
-          )}
-          <button
-            disabled={submitting}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"
+        {mode === "student" && (
+          <form
+            onSubmit={submit}
+            className="mt-10 max-w-2xl space-y-5 rounded-2xl border border-border bg-card p-6 shadow-sm"
           >
-            {submitting ? (
-              <Loader2 size={17} className="animate-spin" />
-            ) : (
-              <Upload size={17} />
-            )}{" "}
-            Submit for review
-          </button>
-        </form>
+            <h2 className="font-display text-xl font-bold text-code-bg">
+              Submit your Module 8 project
+            </h2>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={100}
+              placeholder="Project title"
+              className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none focus:border-primary"
+            />
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={800}
+              placeholder="What did you make?"
+              className="min-h-28 w-full rounded-xl border border-border bg-background p-4 text-sm outline-none focus:border-primary"
+            />
+            <label className="block rounded-xl border border-dashed border-border p-5 text-sm font-semibold">
+              <span className="flex items-center gap-2">
+                <ImagePlus size={18} className="text-primary" />
+                {file
+                  ? file?.name
+                  : "Choose a JPG, PNG, or WebP image (max 5 MB)"}
+              </span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={chooseFile}
+                className="mt-3 block text-xs font-normal"
+              />
+            </label>
+            <label className="block text-sm font-semibold">
+              Optional YouTube video URL
+              <input
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+                placeholder="https://youtube.com/watch?v=..."
+                className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-normal outline-none focus:border-primary"
+              />
+            </label>
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            {saved && (
+              <p className="flex items-center gap-2 text-sm font-semibold text-primary">
+                <CheckCircle2 size={17} /> Submitted for review. It will appear
+                after approval.
+              </p>
+            )}
+            <button
+              disabled={submitting}
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"
+            >
+              {submitting ? (
+                <Loader2 size={17} className="animate-spin" />
+              ) : (
+                <Upload size={17} />
+              )}{" "}
+              Submit for review
+            </button>
+          </form>
+        )}
         <section className="mt-16">
           <h2 className="font-display text-2xl font-bold text-code-bg">
             Approved final projects
           </h2>
           {projects.length === 0 ? (
-            <p className="mt-4 text-sm text-muted-foreground">
-              Approved student projects will appear here.
-            </p>
+            <div className="mt-5 rounded-2xl border border-dashed border-border bg-card p-8 text-center shadow-sm">
+              <h3 className="font-display text-xl font-bold text-code-bg">Nothing is here yet.</h3>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+                Approved student projects will appear here once the first project is reviewed.
+              </p>
+            </div>
           ) : (
             <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {projects.map((project) => (
@@ -259,6 +270,7 @@ export default function ProjectShowcase() {
           )}
         </section>
       </main>
-    </Shell>
   );
+
+  return embedded ? content : <Shell>{content}</Shell>;
 }

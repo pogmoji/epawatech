@@ -19,6 +19,7 @@ import { supabase } from "@/lib/supabase";
 const inputClass =
   "h-12 w-full rounded-xl border border-primary/25 bg-card px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15";
 const studentWelcomeStorageKey = "epawatech:student-welcome";
+type LoginRole = "student" | "trainer";
 
 function queueStudentWelcome(userId: string) {
   window.sessionStorage.setItem(studentWelcomeStorageKey, userId);
@@ -101,6 +102,7 @@ function FormMessage({ message }: { message: string }) {
 export function LoginPage() {
   const router = useRouter();
   const { refreshProfile } = useAuth();
+  const [loginRole, setLoginRole] = useState<LoginRole | null>(null);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -142,21 +144,64 @@ export function LoginPage() {
     router.replace(dashboardPath(profile));
   }
 
+  if (!loginRole) {
+    return (
+      <PageFrame>
+        <section className="mx-auto w-full max-w-3xl text-center">
+          <Title>Welcome Back!</Title>
+          <p className="mt-6 text-sm text-muted-foreground">
+            Choose how you want to sign in.
+          </p>
+          <div className="mt-7 grid gap-5 sm:grid-cols-2">
+            <LoginRoleCard
+              icon={<Gamepad2 />}
+              title="I'm a Student"
+              description="Use your student username to get back to your profile, challenges, projects, and classroom."
+              tone="teal"
+              onClick={() => setLoginRole("student")}
+            />
+            <LoginRoleCard
+              icon={<GraduationCap />}
+              title="I'm an Adjunct Trainer"
+              description="Use your email address to open trainer tools. Admins can sign in here too."
+              tone="yellow"
+              onClick={() => setLoginRole("trainer")}
+            />
+          </div>
+          <p className="mt-6 text-sm text-muted-foreground">
+            Don&apos;t have an account?{" "}
+            <Link href="/signup" className="text-primary hover:underline">
+              Sign up
+            </Link>
+          </p>
+        </section>
+      </PageFrame>
+    );
+  }
+
+  const studentLogin = loginRole === "student";
+  const identifierLabel = studentLogin
+    ? "Student username"
+    : "Email address";
+
   return (
     <PageFrame>
       <section className="mx-auto w-full max-w-113.5 rounded-2xl border border-border bg-card p-8 shadow-[0_16px_32px_rgba(18,50,70,0.12)] sm:p-9">
         <div className="text-center">
-          <Title>Welcome Back!</Title>
+          <Title>{studentLogin ? "Student Sign In" : "Trainer Sign In"}</Title>
           <p className="mt-6 text-sm text-muted-foreground">
-            Students sign in with their username. Trainers and admins use email.
+            {studentLogin
+              ? "Use your student username and password."
+              : "Trainers and admins use email and password."}
           </p>
         </div>
         <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
           <input
             value={identifier}
             onChange={(event) => setIdentifier(event.target.value)}
-            placeholder="Student username or email"
-            aria-label="Student username or email"
+            placeholder={identifierLabel}
+            aria-label={identifierLabel}
+            type={studentLogin ? "text" : "email"}
             autoComplete="username"
             className={inputClass}
           />
@@ -183,6 +228,18 @@ export function LoginPage() {
             )}
           </button>
         </form>
+        <button
+          type="button"
+          onClick={() => {
+            setLoginRole(null);
+            setIdentifier("");
+            setPassword("");
+            setError("");
+          }}
+          className="mt-4 w-full text-sm font-semibold text-primary hover:underline"
+        >
+          Change sign-in type
+        </button>
         <div className="mt-6 border-t border-border pt-4 text-center text-sm text-muted-foreground">
           Don&apos;t have an account?{" "}
           <Link href="/signup" className="text-primary hover:underline">
@@ -191,6 +248,40 @@ export function LoginPage() {
         </div>
       </section>
     </PageFrame>
+  );
+}
+
+function LoginRoleCard({
+  icon,
+  title,
+  description,
+  tone,
+  onClick,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  tone: "teal" | "yellow";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group rounded-2xl border border-primary/20 bg-card p-8 text-center shadow-sm transition hover:-translate-y-1 hover:border-primary hover:shadow-lg"
+    >
+      <div
+        className={`mx-auto flex h-16 w-16 items-center justify-center rounded-xl ${tone === "yellow" ? "bg-accent/15 text-accent-foreground" : "bg-secondary text-primary"}`}
+      >
+        {icon}
+      </div>
+      <h2 className="mt-5 font-display text-xl font-bold text-foreground">
+        {title}
+      </h2>
+      <p className="mt-4 text-sm leading-6 text-muted-foreground">
+        {description}
+      </p>
+    </button>
   );
 }
 

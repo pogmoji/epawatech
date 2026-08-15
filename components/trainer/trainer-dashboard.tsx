@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Award,
   BadgeCheck,
@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  Headset,
   Copy,
   ClipboardCheck,
   ClipboardList,
@@ -53,8 +54,10 @@ import { getTrainerClassroomStudents, type StudentSummary } from "@/lib/api/trai
 import { getAttendance, getAttendanceSessions, recordAttendance, type AttendanceRecord, type AttendanceSessionSummary } from "@/lib/api/trainer/attendance";
 import { getClassroomCurriculum, saveClassroomCurriculum, type ClassroomCurriculumData, type CurriculumSaveItem } from "@/lib/api/trainer/curriculum";
 import { createWeeklyComment, getStudentWeeklyComments, updateWeeklyComment, type WeeklyComment } from "@/lib/api/trainer/comments";
+import { getStudentFeedbackForTrainer, type TrainerStudentFeedback } from "@/lib/api/trainer/feedback";
 import { createHardwareSession, getHardwareEvidence, getHardwareSessions, updateHardwareSession, uploadHardwareEvidence, type HardwareEvidence, type HardwareSession } from "@/lib/api/trainer/hardware";
 import { getStudentTypingHistory, getTrainerClassroomTypingSummary, type TrainerTypingSummary } from "@/lib/api/trainer/typing";
+import { createTrainerAdminReport, getMyTrainerAdminReports, type TrainerAdminReport } from "@/lib/api/trainer/admin-reports";
 import type { TypingAttempt } from "@/lib/api/student/typing";
 
 type View =
@@ -65,7 +68,8 @@ type View =
   | "hardware"
   | "students"
   | "badges"
-  | "reports";
+  | "reports"
+  | "contact";
 type CurriculumItem = {
   id: string;
   title: string;
@@ -257,6 +261,7 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "students", label: "Students", icon: Users },
   { id: "badges", label: "Badge awards", icon: Award },
   { id: "reports", label: "Reports", icon: BarChart3 },
+  { id: "contact", label: "Contact Admin", icon: Headset },
 ];
 
 const emptyTypingSummary: TrainerTypingSummary = {
@@ -640,6 +645,14 @@ export default function TrainerDashboard() {
               classroomName={activeClassroom.name}
               typingSummary={typingSummary}
               hardwareSessions={hardwareSessions}
+            />
+          )}
+          {view === "contact" && (
+            <ContactAdmin
+              classroomId={activeClassroom.id}
+              classroomName={activeClassroom.name}
+              classrooms={classrooms}
+              notify={setNotice}
             />
           )}
         </div>
@@ -2808,6 +2821,7 @@ function Students({
   const [commentFor, setCommentFor] = useState<StudentSummary | null>(null);
   const [comment, setComment] = useState("");
   const [commentHistory, setCommentHistory] = useState<WeeklyComment[]>([]);
+  const [feedbackHistory, setFeedbackHistory] = useState<TrainerStudentFeedback[]>([]);
   const [typingHistory, setTypingHistory] = useState<TypingAttempt[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -2820,13 +2834,16 @@ function Students({
     setComment("");
     setEditingCommentId(null);
     setCommentHistory([]);
+    setFeedbackHistory([]);
     setTypingHistory([]);
     setLoadingHistory(true);
-    const [commentsRes, typingRes] = await Promise.all([
+    const [commentsRes, feedbackRes, typingRes] = await Promise.all([
       getStudentWeeklyComments(classroomId, student.id),
+      getStudentFeedbackForTrainer(classroomId, student.id),
       getStudentTypingHistory(classroomId, student.id),
     ]);
     setCommentHistory(commentsRes.data ?? []);
+    setFeedbackHistory(feedbackRes.data ?? []);
     setTypingHistory(typingRes.data ?? []);
     setLoadingHistory(false);
   }
@@ -2919,9 +2936,9 @@ function Students({
           <p className="mt-2 text-sm text-muted-foreground">
             {commentMode === "write"
               ? "Add a new trainer note for this student. Use an Edit button below only when changing a saved comment."
-              : "Review previous trainer comments and saved typing attempts."}
+              : "Review previous trainer comments, student reflections, and saved typing attempts."}
           </p>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="mt-4 grid gap-4 lg:grid-cols-3">
             <div className="rounded-xl border border-border p-3">
               <h3 className="text-sm font-bold">Comment history</h3>
               <div className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
@@ -2946,6 +2963,24 @@ function Students({
                   </div>
                 )) : (
                   <p className="text-sm text-muted-foreground">No saved trainer comments yet.</p>
+                )}
+              </div>
+            </div>
+            <div className="rounded-xl border border-border p-3">
+              <h3 className="text-sm font-bold">Student reflections</h3>
+              <div className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
+                {loadingHistory ? (
+                  <p className="text-sm text-muted-foreground">Loading reflections...</p>
+                ) : feedbackHistory.length ? feedbackHistory.map((item) => (
+                  <div key={item.id} className="rounded-lg bg-muted p-2.5 text-sm">
+                    <p className="text-xs font-bold text-primary">
+                      {new Date(item.createdAt).toLocaleDateString()}
+                      {item.updatedAt !== item.createdAt ? " · edited" : ""}
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{item.feedbackText}</p>
+                  </div>
+                )) : (
+                  <p className="text-sm text-muted-foreground">No student reflections yet.</p>
                 )}
               </div>
             </div>
@@ -3250,6 +3285,180 @@ function Reports({
             <b>{hardwareSessions.length}</b>
           </div>
           <Progress value={Math.min(100, hardwareSessions.length * 25)} />
+        </Card>
+      </div>
+    </>
+  );
+}
+
+const reportCategories = [
+  { value: "classroom", label: "Classroom" },
+  { value: "student", label: "Student" },
+  { value: "equipment", label: "Equipment" },
+  { value: "schedule", label: "Schedule" },
+  { value: "platform", label: "Platform / Technical" },
+  { value: "centre", label: "Centre" },
+  { value: "administrative", label: "Administrative" },
+  { value: "other", label: "Other" },
+];
+
+function ContactAdmin({
+  classroomId,
+  classroomName,
+  classrooms,
+  notify,
+}: {
+  classroomId: string;
+  classroomName: string;
+  classrooms: TrainerClassroom[];
+  notify: (message: string) => void;
+}) {
+  const [reports, setReports] = useState<TrainerAdminReport[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({
+    classroomId,
+    category: "classroom",
+    priority: "normal",
+    subject: "",
+    message: "",
+  });
+  const [attachment, setAttachment] = useState<File | null>(null);
+
+  const update = (key: keyof typeof form, value: string) =>
+    setForm((current) => ({ ...current, [key]: value }));
+
+  const loadReports = useCallback(async () => {
+    setLoading(true);
+    const result = await getMyTrainerAdminReports();
+    setLoading(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setReports(result.data ?? []);
+    setError("");
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadReports(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadReports]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (form.subject.trim().length < 3) return setError("Add a short subject.");
+    if (form.message.trim().length < 10) return setError("Add a little more detail for Admin.");
+    setSubmitting(true);
+    setError("");
+    const result = await createTrainerAdminReport({
+      classroomId: form.classroomId || null,
+      category: form.category,
+      priority: form.priority,
+      subject: form.subject,
+      message: form.message,
+      attachment,
+    });
+    setSubmitting(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setForm((current) => ({ ...current, category: "classroom", priority: "normal", subject: "", message: "" }));
+    setAttachment(null);
+    setReports((current) => result.data ? [result.data, ...current] : current);
+    notify("Report sent to Admin.");
+  }
+
+  return (
+    <>
+      <PageHeading eyebrow={`${classroomName} · support`} title="Contact Admin" />
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <Card>
+          <h3 className="font-display text-xl font-bold">Report an issue</h3>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            Reports are saved in the admin inbox. Email notification can be configured later without risking the saved record.
+          </p>
+          <form onSubmit={submit} className="mt-5 space-y-4">
+            <input
+              value={form.subject}
+              onChange={(event) => update("subject", event.target.value)}
+              maxLength={140}
+              placeholder="Subject"
+              className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <select value={form.category} onChange={(event) => update("category", event.target.value)} className="h-11 rounded-xl border border-border bg-background px-3 text-sm">
+                {reportCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
+              </select>
+              <select value={form.priority} onChange={(event) => update("priority", event.target.value)} className="h-11 rounded-xl border border-border bg-background px-3 text-sm">
+                <option value="normal">Normal</option>
+                <option value="important">Important</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+            <select value={form.classroomId} onChange={(event) => update("classroomId", event.target.value)} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm">
+              <option value="">No specific classroom</option>
+              {classrooms.map((classroom) => <option key={classroom.id} value={classroom.id}>{classroom.name}</option>)}
+            </select>
+            <textarea
+              value={form.message}
+              onChange={(event) => update("message", event.target.value)}
+              maxLength={3000}
+              placeholder="Describe what happened, what you need, or what Admin should check."
+              className="min-h-36 w-full rounded-xl border border-border bg-background px-3 py-3 text-sm outline-none focus:border-primary"
+            />
+            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-dashed border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+              <span className="inline-flex items-center gap-2 font-semibold text-primary"><Upload size={16} />{attachment ? attachment.name : "Optional attachment"}</span>
+              <span className="text-xs text-muted-foreground">PDF, Word, or image · 5MB max</span>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp"
+                className="sr-only"
+                onChange={(event) => setAttachment(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            {error && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+            <button disabled={submitting} type="submit" className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-60">
+              <Send size={16} />{submitting ? "Sending..." : "Send report"}
+            </button>
+          </form>
+        </Card>
+        <Card>
+          <h3 className="font-display text-xl font-bold">My report history</h3>
+          {loading ? (
+            <p className="mt-4 text-sm text-muted-foreground">Loading reports...</p>
+          ) : reports.length ? (
+            <div className="mt-4 space-y-3">
+              {reports.map((report) => {
+                const category = reportCategories.find((item) => item.value === report.category)?.label ?? report.category;
+                return (
+                  <article key={report.id} className="rounded-xl border border-border bg-muted/30 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold">{report.subject}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {category} · {report.priority} · {new Date(report.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-card px-2.5 py-1 text-xs font-bold capitalize text-primary">{report.status}</span>
+                    </div>
+                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">{report.message}</p>
+                    {report.signedAttachmentUrl && (
+                      <a href={report.signedAttachmentUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-bold text-primary hover:underline">
+                        Open attachment
+                      </a>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="mt-4 rounded-xl bg-muted/40 p-4 text-sm leading-6 text-muted-foreground">
+              No reports sent yet.
+            </p>
+          )}
         </Card>
       </div>
     </>
