@@ -854,7 +854,7 @@ function WeeklyTopicsView(p: ContentProps) {
         )}
       </FormCard>
 
-      <ListCard title="Weekly topics" empty="No weekly topics have been posted yet.">
+      <ListCard title="Weekly Inputs" empty="No Weekly Inputs have been posted yet.">
         {p.dashboard.weeklyTopics.map((topic) => {
           const submissions = p.dashboard.weeklyTopicSubmissions.filter((submission) => submission.weekly_topic_id === topic.id);
           const dueDate = new Date(topic.due_at);

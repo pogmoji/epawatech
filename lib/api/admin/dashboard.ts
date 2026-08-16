@@ -215,7 +215,7 @@ export async function createWeeklyTopic(input: {
     .select("id, title, instructions, week_key, starts_at, due_at, published, created_by_admin_id, created_at, updated_at")
     .single();
 
-  if (error) return failure(error.message.includes("weekly_topics") ? "Run migration 024 before creating weekly topics." : "Weekly topic could not be created.");
+  if (error) return failure(error.message.includes("weekly_topics") ? "Run migration 024 before creating Weekly Inputs." : "Weekly topic could not be created.");
   return { data: data as WeeklyTopicRecord, error: null };
 }
 

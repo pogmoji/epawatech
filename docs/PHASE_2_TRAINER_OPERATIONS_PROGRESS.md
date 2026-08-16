@@ -57,19 +57,19 @@ This file tracks implementation against `EPAWATECH_PHASE_2_TRAINER_OPERATIONS_CO
 
 Email sending note: the database records `email_notification_status` and `email_sent_at`, and `.env.example` now documents the SMTP variables. Request-scoped SMTP sending still needs a compatible mailer dependency or server mail utility before it can send Truehost mail.
 
-### Part C — Weekly Topics
+### Part C — Weekly Inputs
 
 - Added `supabase/migrations/024_weekly_topics.sql`.
 - Added admin-managed `weekly_topics` records with publish/draft support.
 - Added trainer-owned `trainer_weekly_topic_submissions` records with text response and optional PDF/DOCX attachment support.
 - Added private `weekly-topic-submissions` storage bucket and folder-based policies.
-- Added Trainer → Weekly Topics UI with:
+- Added Trainer → Weekly Inputs UI with:
   - published topic list;
   - topic instructions and due date;
   - text response composer;
   - optional PDF/DOCX upload;
   - personal submission history and signed attachment links.
-- Added Admin → Weekly Topics UI with:
+- Added Admin → Weekly Inputs UI with:
   - create/edit topic form;
   - publish toggle;
   - due/open dates;

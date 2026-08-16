@@ -1,12 +1,12 @@
 -- ============================================================
--- Migration 024 — Weekly topics and trainer submissions
+-- Migration 024 — Weekly Inputs and trainer submissions
 -- ePawatech — Phase 2 Part C
 -- ============================================================
 -- Review this file before running it in the Supabase SQL editor.
 -- It is intentionally not executed by Codex.
 --
 -- Why:
--- Admin posts weekly topics/tasks. Every active trainer submits individually.
+-- Admin posts Weekly Inputs/tasks. Every active trainer submits individually.
 -- This is separate from the Lead Trainer classroom weekly report.
 
 CREATE TABLE IF NOT EXISTS weekly_topics (
@@ -185,7 +185,7 @@ CREATE POLICY weekly_topic_submissions_storage_insert
   );
 
 COMMENT ON TABLE weekly_topics IS
-  'Admin-published weekly topics/tasks for individual trainer responses.';
+  'Admin-published Weekly Inputs/tasks for individual trainer responses.';
 
 COMMENT ON TABLE trainer_weekly_topic_submissions IS
-  'Individual trainer submissions for weekly topics. Separate from classroom weekly reports.';
+  'Individual trainer submissions for Weekly Inputs. Separate from classroom weekly reports.';

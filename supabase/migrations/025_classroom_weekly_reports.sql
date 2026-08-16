@@ -6,7 +6,7 @@
 -- It is intentionally not executed by Codex.
 --
 -- Why:
--- Weekly Topics are individual trainer submissions. Classroom Weekly Reports
+-- Weekly Inputs are individual trainer submissions. Classroom Weekly Reports
 -- are the official classroom-level weekly accountability report, submitted by
 -- the active Lead Trainer and visible to other assigned classroom trainers.
 

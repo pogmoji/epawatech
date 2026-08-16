@@ -119,7 +119,7 @@ export async function getTrainerWeeklyTopics(): Promise<TrainerResult<TrainerWee
     client.from("trainer_weekly_topic_submissions").select(submissionSelect()).order("submitted_at", { ascending: false }),
   ]);
 
-  if (topicsResult.error) return { data: null, error: "Weekly topics could not be loaded. Run migration 024 if it has not been applied." };
+  if (topicsResult.error) return { data: null, error: "Weekly Inputs could not be loaded. Run migration 024 if it has not been applied." };
   if (submissionsResult.error) return { data: null, error: "Weekly topic submissions could not be loaded." };
 
   const submissions = await Promise.all(((submissionsResult.data ?? []) as unknown as SubmissionRow[]).map(async (row) => {

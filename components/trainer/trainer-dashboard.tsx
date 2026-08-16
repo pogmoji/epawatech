@@ -274,7 +274,7 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "badges", label: "Badge awards", icon: Award },
   { id: "reports", label: "Reports", icon: BarChart3 },
   { id: "weekly-report", label: "Weekly Report", icon: ClipboardCheck },
-  { id: "weekly-topics", label: "Weekly Topics", icon: CalendarDays },
+  { id: "weekly-topics", label: "Weekly Inputs", icon: CalendarDays },
   { id: "contact", label: "Contact Admin", icon: Headset },
 ];
 
@@ -3761,9 +3761,9 @@ function WeeklyTopics({ notify }: { notify: (message: string) => void }) {
 
   return (
     <>
-      <PageHeading eyebrow="individual trainer task" title="Weekly Topics" />
+      <PageHeading eyebrow="individual trainer task" title="Weekly Inputs" />
       {loading ? (
-        <Card><p className="text-sm text-muted-foreground">Loading weekly topics...</p></Card>
+        <Card><p className="text-sm text-muted-foreground">Loading Weekly Inputs...</p></Card>
       ) : topics.length ? (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
           <Card>
@@ -3843,7 +3843,7 @@ function WeeklyTopics({ notify }: { notify: (message: string) => void }) {
         <Card>
           <h3 className="font-display text-xl font-bold">No weekly topic has been posted yet.</h3>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Admin-published weekly topics will appear here.
+            Admin-published Weekly Inputs will appear here.
           </p>
         </Card>
       )}

@@ -473,4 +473,4 @@ Lessons = trainer controlled
 
 The student should always be able to understand the full module roadmap while clearly seeing which lessons are available now and which ones their trainer will release later.
 
-Once this is verified, proceed with **Phase 2 Part C — Weekly Topics**.
+Once this is verified, proceed with **Phase 2 Part C — Weekly Inputs**.

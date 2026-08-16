@@ -7,7 +7,7 @@ This phase expands the Trainer and Admin dashboards into a complete operational 
 It adds:
 
 - Trainer → Admin concerns/issues communication.
-- Admin-posted Weekly Topics with individual trainer submissions.
+- Admin-posted Weekly Inputs with individual trainer submissions.
 - Weekly Classroom Reports submitted by the Lead Trainer.
 - A dependable Homework/Assignments system with quizzes, document/file submissions, manual marking, and offline assessment.
 - Proper support for multiple trainers in one classroom.
@@ -381,7 +381,7 @@ Email is a notification.
 
 ---
 
-# PART C — WEEKLY TOPICS
+# PART C — Weekly Inputs
 
 ## 14. Concept
 
@@ -417,11 +417,11 @@ Admin can:
 
 ---
 
-## 16. Trainer Weekly Topics Tab
+## 16. Trainer Weekly Inputs Tab
 
 Add Trainer tab:
 
-**Weekly Topics**
+**Weekly Inputs**
 
 Trainer can:
 
@@ -1165,7 +1165,7 @@ Attendance
 Assignments
 Curriculum
 Progress / WPM
-Weekly Topics
+Weekly Inputs
 Weekly Report
 Contact Admin
 ```
@@ -1182,7 +1182,7 @@ Required admin access:
 
 - Classroom trainer management.
 - Trainer Reports.
-- Weekly Topics.
+- Weekly Inputs.
 - Weekly Reports.
 
 Do not redesign unrelated Admin areas.
@@ -1396,7 +1396,7 @@ Trainer Concern:
 
 ## 53. Trainer UI Examples
 
-Weekly Topics:
+Weekly Inputs:
 
 `No weekly topic has been posted yet.`
 
@@ -1475,7 +1475,7 @@ Do this first because Weekly Report permissions depend on Lead Trainer.
 
 ---
 
-## 57. Phase 2C — Weekly Topics
+## 57. Phase 2C — Weekly Inputs
 
 1. Admin topic model/UI.
 2. Publish/due date.
@@ -1665,9 +1665,9 @@ Verify:
 - Admin receives email notification;
 - Admin has internal Trainer Reports inbox;
 - SMTP uses request-scoped sending without permanent worker processes;
-- Admin can publish Weekly Topics;
+- Admin can publish Weekly Inputs;
 - each trainer submits Weekly Topic individually;
-- Weekly Topics support text/PDF/DOCX;
+- Weekly Inputs support text/PDF/DOCX;
 - Admin sees missing trainer submissions;
 - Lead Trainer submits one Weekly Classroom Report per classroom/week;
 - Weekly Reports support text/PDF/DOCX;
