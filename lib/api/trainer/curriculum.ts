@@ -11,6 +11,7 @@ export type CurriculumItem = {
   sort_order: number;
   state: "draft" | "live" | "completed" | "hidden";
   removed: boolean;
+  is_unlocked: boolean;
 };
 
 export type CurriculumOverride = {
@@ -20,6 +21,7 @@ export type CurriculumOverride = {
   configuration_override: LessonActivity | null;
   sort_order_override: number | null;
   removed: boolean;
+  is_unlocked: boolean;
 };
 
 export type MasterActivityRoute = {
@@ -41,6 +43,7 @@ export type CurriculumSaveItem = {
   title: string;
   origin: "core" | "trainer";
   removed?: boolean;
+  isUnlocked?: boolean;
   masterTitle?: string;
   activity?: LessonActivity;
 };
@@ -97,12 +100,12 @@ export async function getClassroomCurriculum(classroomId: string): Promise<Train
   const [itemsResult, overridesResult, masterResult] = await Promise.all([
     supabase
       .from("classroom_curriculum_items")
-      .select("id, master_activity_id, origin, title, configuration, sort_order, state, removed")
+      .select("id, master_activity_id, origin, title, configuration, sort_order, state, removed, is_unlocked")
       .eq("classroom_id", classroomId)
       .order("sort_order"),
     supabase
       .from("classroom_curriculum_overrides")
-      .select("id, master_activity_id, title_override, configuration_override, sort_order_override, removed")
+      .select("id, master_activity_id, title_override, configuration_override, sort_order_override, removed, is_unlocked")
       .eq("classroom_id", classroomId),
     getMasterActivityRoutes(),
   ]);
@@ -146,6 +149,7 @@ export async function saveClassroomCurriculum(classroomId: string, items: Curric
       configuration_override: item.activity ?? null,
       sort_order_override: item.moduleIndex * 100 + item.itemIndex,
       removed: Boolean(item.removed),
+      is_unlocked: item.isUnlocked !== false,
       created_by: userData.user.id,
     }];
   });
@@ -175,6 +179,7 @@ export async function saveClassroomCurriculum(classroomId: string, items: Curric
       sort_order: item.moduleIndex * 100 + item.itemIndex,
       state: "live",
       removed: false,
+      is_unlocked: item.isUnlocked !== false,
       created_by: userData.user.id,
     }));
 

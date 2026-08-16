@@ -237,6 +237,8 @@ export default function StudentDashboard() {
     }
     setJoinCode("");
     setNotice("Classroom joined. Loading your dashboard...");
+    setView("overview");
+    router.replace("/student");
     void loadDashboard();
   };
 

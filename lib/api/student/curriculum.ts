@@ -3,6 +3,11 @@ import { tracks, type Challenge, type Lesson, type LessonActivity, type Track } 
 import type { StudentResult } from "./enrollment";
 
 export type ActivityRouteMap = Record<string, string>;
+export type LessonAvailabilityMap = Record<string, boolean>;
+export type EffectiveStudentCurriculum = {
+  tracks: Track[];
+  availability: LessonAvailabilityMap;
+};
 
 type ActivityRouteRow = {
   id: string;
@@ -22,6 +27,7 @@ type CurriculumOverrideRow = {
   configuration_override: LessonActivity | null;
   sort_order_override: number | null;
   removed: boolean;
+  is_unlocked: boolean;
 };
 
 type ClassroomCurriculumItemRow = {
@@ -32,6 +38,7 @@ type ClassroomCurriculumItemRow = {
   sort_order: number;
   state: "draft" | "live" | "completed" | "hidden";
   removed: boolean;
+  is_unlocked: boolean;
 };
 
 function one<T>(value: Relation<T>) {
@@ -66,17 +73,23 @@ export async function getStudentActivityRouteMap(): Promise<StudentResult<Activi
 }
 
 export async function getEffectiveStudentTracks(classroomId: string): Promise<StudentResult<Track[]>> {
+  const result = await getEffectiveStudentCurriculum(classroomId);
+  if (result.error || !result.data) return { data: null, error: result.error };
+  return { data: result.data.tracks, error: null };
+}
+
+export async function getEffectiveStudentCurriculum(classroomId: string): Promise<StudentResult<EffectiveStudentCurriculum>> {
   if (!supabase) return { data: null, error: "Supabase is not configured for this deployment." };
 
   const [activityMapResult, overridesResult, customItemsResult] = await Promise.all([
     getStudentActivityRouteMap(),
     supabase
       .from("classroom_curriculum_overrides")
-      .select("master_activity_id, title_override, configuration_override, sort_order_override, removed")
+      .select("master_activity_id, title_override, configuration_override, sort_order_override, removed, is_unlocked")
       .eq("classroom_id", classroomId),
     supabase
       .from("classroom_curriculum_items")
-      .select("id, origin, title, configuration, sort_order, state, removed")
+      .select("id, origin, title, configuration, sort_order, state, removed, is_unlocked")
       .eq("classroom_id", classroomId)
       .eq("origin", "custom")
       .order("sort_order"),
@@ -89,15 +102,14 @@ export async function getEffectiveStudentTracks(classroomId: string): Promise<St
   if (overridesResult.error) return { data: null, error: "Failed to load classroom curriculum overrides." };
   if (customItemsResult.error) return { data: null, error: "Failed to load classroom curriculum additions." };
 
-  return {
-    data: applyEffectiveCurriculum(
+  const curriculum = applyEffectiveCurriculum(
       tracks,
       activityMapResult.data,
       (overridesResult.data ?? []) as CurriculumOverrideRow[],
       (customItemsResult.data ?? []) as ClassroomCurriculumItemRow[],
-    ),
-    error: null,
-  };
+    );
+
+  return { data: curriculum, error: null };
 }
 
 function applyEffectiveCurriculum(
@@ -105,8 +117,9 @@ function applyEffectiveCurriculum(
   activityMap: ActivityRouteMap,
   overrides: CurriculumOverrideRow[],
   customItems: ClassroomCurriculumItemRow[],
-) {
+): EffectiveStudentCurriculum {
   const routeByActivityId = new Map(Object.entries(activityMap).map(([route, id]) => [id, route]));
+  const availability: LessonAvailabilityMap = {};
   const overrideByRoute = new Map(
     overrides.flatMap((override) => {
       const route = routeByActivityId.get(override.master_activity_id);
@@ -114,9 +127,11 @@ function applyEffectiveCurriculum(
     }),
   );
 
-  return sourceTracks.map((track, moduleIndex) => {
+  const effectiveTracks = sourceTracks.map((track, moduleIndex) => {
     const lessonEntries = track.lessons.map((lesson, lessonIndex) => {
       const override = overrideByRoute.get(`${track.slug}/${lesson.slug}`);
+      const isUnlocked = override?.is_unlocked ?? true;
+      availability[`${track.slug}/${lesson.slug}`] = isUnlocked;
       return {
         order: override?.sort_order_override ?? moduleIndex * 100 + lessonIndex,
         removed: override?.removed ?? false,
@@ -124,24 +139,31 @@ function applyEffectiveCurriculum(
           ...lesson,
           title: override?.title_override ?? lesson.title,
           activity: override?.configuration_override ?? lesson.activity,
+          isUnlocked,
         } satisfies Lesson,
       };
     });
 
     const visibleCustomLessons = customItems
       .filter((item) => item.state === "live" && !item.removed && item.configuration && Math.floor(item.sort_order / 100) === moduleIndex)
-      .map((item) => ({
-        order: item.sort_order,
-        removed: false,
-        lesson: {
-          slug: `custom-${item.id}`,
-          title: item.title,
-          topics: ["Trainer-added classroom activity"],
-          activity: item.configuration as LessonActivity,
-        } satisfies Lesson,
-      }));
+      .map((item) => {
+        const slug = `custom-${item.id}`;
+        availability[`${track.slug}/${slug}`] = item.is_unlocked;
+        return {
+          order: item.sort_order,
+          removed: false,
+          lesson: {
+            slug,
+            title: item.title,
+            topics: ["Trainer-added classroom activity"],
+            activity: item.configuration as LessonActivity,
+            isUnlocked: item.is_unlocked,
+          } satisfies Lesson,
+        };
+      });
 
     const challenge = track.challenge ? applyChallengeOverride(track, overrideByRoute) : undefined;
+    if (challenge) availability[`${track.slug}/challenge`] = challenge.isUnlocked ?? true;
 
     return {
       ...track,
@@ -152,6 +174,8 @@ function applyEffectiveCurriculum(
       challenge,
     };
   });
+
+  return { tracks: effectiveTracks, availability };
 }
 
 function applyChallengeOverride(track: Track, overrideByRoute: Map<string, CurriculumOverrideRow>): Challenge | undefined {
@@ -163,5 +187,6 @@ function applyChallengeOverride(track: Track, overrideByRoute: Map<string, Curri
     ...track.challenge,
     title: override?.title_override ?? track.challenge.title,
     activity: override?.configuration_override ?? track.challenge.activity,
+    isUnlocked: override?.is_unlocked ?? true,
   };
 }

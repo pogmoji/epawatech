@@ -20,6 +20,8 @@ import {
   HardHat,
   LayoutDashboard,
   ListChecks,
+  Lock,
+  Unlock,
   Menu,
   Pencil,
   Play,
@@ -58,6 +60,8 @@ import { getStudentFeedbackForTrainer, type TrainerStudentFeedback } from "@/lib
 import { createHardwareSession, getHardwareEvidence, getHardwareSessions, updateHardwareSession, uploadHardwareEvidence, type HardwareEvidence, type HardwareSession } from "@/lib/api/trainer/hardware";
 import { getStudentTypingHistory, getTrainerClassroomTypingSummary, type TrainerTypingSummary } from "@/lib/api/trainer/typing";
 import { createTrainerAdminReport, getMyTrainerAdminReports, type TrainerAdminReport } from "@/lib/api/trainer/admin-reports";
+import { getTrainerWeeklyTopics, submitWeeklyTopicResponse, type TrainerWeeklyTopicSubmission, type WeeklyTopic } from "@/lib/api/trainer/weekly-topics";
+import { getClassroomWeeklyReports, submitClassroomWeeklyReport, type ClassroomWeeklyReport } from "@/lib/api/trainer/weekly-reports";
 import type { TypingAttempt } from "@/lib/api/student/typing";
 
 type View =
@@ -69,6 +73,8 @@ type View =
   | "students"
   | "badges"
   | "reports"
+  | "weekly-report"
+  | "weekly-topics"
   | "contact";
 type CurriculumItem = {
   id: string;
@@ -76,6 +82,7 @@ type CurriculumItem = {
   kind: string;
   origin: "core" | "trainer";
   removed?: boolean;
+  isUnlocked?: boolean;
   masterTitle?: string;
   masterKind?: string;
   instruction?: string;
@@ -165,6 +172,7 @@ function initialModules(): Module[] {
         masterInstruction: activityInstruction(lesson.activity),
         masterActivity: lesson.activity,
         activity: lesson.activity,
+        isUnlocked: true,
       })),
       ...(track.challenge
         ? [{
@@ -179,6 +187,7 @@ function initialModules(): Module[] {
             masterInstruction: activityInstruction(track.challenge.activity),
             masterActivity: track.challenge.activity,
             activity: track.challenge.activity,
+            isUnlocked: true,
           }]
         : []),
     ],
@@ -205,6 +214,7 @@ function applyClassroomCurriculum(modules: Module[], data: ClassroomCurriculumDa
           activity: override.configuration_override ?? item.activity,
           instruction: override.configuration_override ? activityInstruction(override.configuration_override) : item.instruction,
           removed: override.removed,
+          isUnlocked: override.is_unlocked,
         },
         order: override.sort_order_override ?? moduleIndex * 100 + itemIndex,
       };
@@ -219,6 +229,7 @@ function applyClassroomCurriculum(modules: Module[], data: ClassroomCurriculumDa
           kind: item.configuration ? activityLabels[item.configuration.type] : "Trainer activity",
           origin: "trainer" as const,
           removed: item.removed,
+          isUnlocked: item.is_unlocked,
           instruction: item.configuration ? activityInstruction(item.configuration) : "",
           activity: item.configuration ?? undefined,
         },
@@ -246,6 +257,7 @@ function flattenCurriculumForSave(modules: Module[]): CurriculumSaveItem[] {
       title: item.title,
       origin: item.origin,
       removed: item.removed,
+      isUnlocked: item.isUnlocked !== false,
       masterTitle: item.masterTitle,
       activity: item.activity,
     })),
@@ -261,6 +273,8 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "students", label: "Students", icon: Users },
   { id: "badges", label: "Badge awards", icon: Award },
   { id: "reports", label: "Reports", icon: BarChart3 },
+  { id: "weekly-report", label: "Weekly Report", icon: ClipboardCheck },
+  { id: "weekly-topics", label: "Weekly Topics", icon: CalendarDays },
   { id: "contact", label: "Contact Admin", icon: Headset },
 ];
 
@@ -350,8 +364,10 @@ export default function TrainerDashboard() {
   }, [activeClassroomId]);
 
   useEffect(() => {
-    void loadDashboardData();
+    const timer = window.setTimeout(() => { void loadDashboardData(); }, 0);
+    return () => window.clearTimeout(timer);
   }, [loadDashboardData]);
+
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(""), 3600);
@@ -647,6 +663,8 @@ export default function TrainerDashboard() {
               hardwareSessions={hardwareSessions}
             />
           )}
+          {view === "weekly-report" && <WeeklyReport classroom={activeClassroom} notify={setNotice} />}
+          {view === "weekly-topics" && <WeeklyTopics notify={setNotice} />}
           {view === "contact" && (
             <ContactAdmin
               classroomId={activeClassroom.id}
@@ -1055,7 +1073,7 @@ function Curriculum({
   classroomName: string;
 }) {
   const [expanded, setExpanded] = useState<string[]>(
-    [modules[5]?.id].filter(Boolean),
+    modules.map((module) => module.id),
   );
   const [addTo, setAddTo] = useState<string | null>(null);
   const [editing, setEditing] = useState<{
@@ -1132,6 +1150,21 @@ function Curriculum({
       );
     }
   };
+  const toggleUnlocked = async (moduleId: string, itemId: string) => {
+    const item = modules
+      .find((module) => module.id === moduleId)
+      ?.items.find((current) => current.id === itemId);
+    if (!item || item.removed) return;
+    const nextModules = updatedModulesForItem(modules, moduleId, itemId, { isUnlocked: item.isUnlocked === false });
+    const saved = await persistModules(nextModules);
+    if (saved) {
+      notify(
+        item.isUnlocked === false
+          ? `${item.title} unlocked for ${classroomName}.`
+          : `${item.title} locked for students until a trainer unlocks it.`,
+      );
+    }
+  };
   const addItem = async (type: LessonActivity["type"], title: string) => {
     if (!addTo || !title.trim()) return;
     const activity = defaultActivity(type);
@@ -1148,6 +1181,7 @@ function Curriculum({
                   origin: "trainer" as const,
                   instruction: activityInstruction(activity),
                   activity,
+                  isUnlocked: true,
                 },
               ],
             }
@@ -1166,6 +1200,7 @@ function Curriculum({
       const results: string[] = [];
       if (item.origin === "trainer") results.push("Trainer-added item");
       if (item.removed) results.push("Removed from classroom");
+      if (item.isUnlocked === false) results.push("Locked for students");
       if (item.masterTitle && item.title !== item.masterTitle)
         results.push("Title customized");
       if (item.masterKind && item.kind !== item.masterKind)
@@ -1299,6 +1334,40 @@ function Curriculum({
             {expanded.includes(module.id) && (
               <div className="border-t border-border bg-muted/30 p-3 sm:p-4">
                 <div className="ml-0 border-l-2 border-primary/20 pl-3 sm:ml-5">
+                  <div className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-800">
+                          Student lesson access
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-emerald-900">
+                          Modules stay open. Use these controls to choose which lessons students can open.
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-800">
+                        {module.items.filter((item) => !item.removed && item.isUnlocked !== false).length}/{module.items.filter((item) => !item.removed).length} unlocked
+                      </span>
+                    </div>
+                    <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                      {module.items.filter((item) => !item.removed).map((item) => (
+                        <div key={`access-${item.id}`} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 shadow-sm">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-bold text-foreground">{item.title}</p>
+                            <p className={`mt-0.5 inline-flex items-center gap-1 text-xs font-bold ${item.isUnlocked === false ? "text-rose-700" : "text-emerald-700"}`}>
+                              {item.isUnlocked === false ? <Lock size={12} /> : <Unlock size={12} />}
+                              {item.isUnlocked === false ? "Locked for students" : "Available to students"}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => void toggleUnlocked(module.id, item.id)}
+                            className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold ${item.isUnlocked === false ? "bg-primary text-primary-foreground" : "border border-rose-200 text-rose-700 hover:bg-rose-50"}`}
+                          >
+                            {item.isUnlocked === false ? "Unlock" : "Lock"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                   {module.items.map((item, index) => {
                     const customized =
                       item.origin === "core" &&
@@ -1345,6 +1414,12 @@ function Curriculum({
                             END-OF-MODULE CHALLENGE
                           </span>
                         )}
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ${item.removed ? "bg-slate-100 text-slate-500" : item.isUnlocked === false ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}
+                        >
+                          {item.isUnlocked === false ? <Lock size={11} /> : <Unlock size={11} />}
+                          {item.isUnlocked === false ? "LOCKED" : "UNLOCKED"}
+                        </span>
                         <div className="flex flex-wrap gap-1">
                           <MiniButton
                             label="Move earlier"
@@ -1373,6 +1448,13 @@ function Curriculum({
                           >
                             <Play className="mr-1 inline" size={13} />
                             Try
+                          </button>
+                          <button
+                            disabled={item.removed}
+                            onClick={() => void toggleUnlocked(module.id, item.id)}
+                            className="rounded-lg border border-border px-2 py-1.5 text-xs font-bold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {item.isUnlocked === false ? "Unlock lesson" : "Lock lesson"}
                           </button>
                           <button
                             onClick={() => void toggleRemoved(module.id, item.id)}
@@ -2591,7 +2673,10 @@ function Hardware({
   const editingSession = sessions.find((session) => session.id === editingSessionId) ?? null;
 
   useEffect(() => {
-    setSelectedSessionId((current) => (current && sessions.some((session) => session.id === current) ? current : sessions[0]?.id ?? null));
+    const timer = window.setTimeout(() => {
+      setSelectedSessionId((current) => (current && sessions.some((session) => session.id === current) ? current : sessions[0]?.id ?? null));
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [sessions]);
 
   useEffect(() => {
@@ -3291,6 +3376,153 @@ function Reports({
   );
 }
 
+function WeeklyReport({ classroom, notify }: { classroom: TrainerClassroom; notify: (message: string) => void }) {
+  const isLeadTrainer = classroom.assignmentRole === "lead";
+  const [reports, setReports] = useState<ClassroomWeeklyReport[]>([]);
+  const [weekKey, setWeekKey] = useState(`week-${currentWeekNumber()}`);
+  const [reportText, setReportText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const currentReport = reports.find((report) => report.weekKey === weekKey) ?? null;
+
+  const loadReports = useCallback(async () => {
+    setLoading(true);
+    const result = await getClassroomWeeklyReports(classroom.id);
+    setLoading(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setReports(result.data ?? []);
+    setError("");
+  }, [classroom.id]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadReports(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadReports]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setReportText(currentReport?.reportText ?? "");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [currentReport]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!isLeadTrainer) return setError("Only the active Lead Trainer can submit the official classroom weekly report.");
+    if (!reportText.trim() && !file) return setError("Write a report or upload a PDF/DOCX file.");
+    setSubmitting(true);
+    setError("");
+    const result = await submitClassroomWeeklyReport({
+      classroomId: classroom.id,
+      weekKey,
+      reportText,
+      file,
+    });
+    setSubmitting(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setFile(null);
+    if (result.data) {
+      setReports((current) => [result.data!, ...current.filter((report) => report.id !== result.data!.id && report.weekKey !== result.data!.weekKey)]);
+    }
+    notify("Classroom weekly report submitted.");
+  }
+
+  return (
+    <>
+      <PageHeading eyebrow={`${classroom.name} · classroom accountability`} title="Weekly Report" />
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <Card>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="font-display text-xl font-bold">Official classroom report</h3>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                One report is saved per classroom each week. Co-trainers can view it, but only the active Lead Trainer submits it.
+              </p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${isLeadTrainer ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+              {isLeadTrainer ? "Lead Trainer" : "Read-only"}
+            </span>
+          </div>
+
+          <form onSubmit={submit} className="mt-5 space-y-4">
+            <input
+              value={weekKey}
+              onChange={(event) => setWeekKey(event.target.value)}
+              disabled={!isLeadTrainer}
+              placeholder="week-12"
+              className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary disabled:opacity-60"
+            />
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-950">
+              <p className="font-bold">Helpful prompts</p>
+              <p className="mt-1">What went well? What was covered? How was student engagement? What challenges came up? Is follow-up needed?</p>
+            </div>
+            <textarea
+              value={reportText}
+              onChange={(event) => setReportText(event.target.value)}
+              disabled={!isLeadTrainer || currentReport?.status === "reviewed"}
+              maxLength={5000}
+              placeholder="Write this classroom's weekly report."
+              className="min-h-44 w-full rounded-xl border border-border bg-background px-3 py-3 text-sm outline-none focus:border-primary disabled:opacity-60"
+            />
+            <label className={`flex items-center justify-between gap-3 rounded-xl border border-dashed border-primary/30 bg-primary/5 px-4 py-3 text-sm ${isLeadTrainer ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+              <span className="inline-flex items-center gap-2 font-semibold text-primary">
+                <Upload size={16} />{file ? file.name : "Optional PDF/DOCX upload"}
+              </span>
+              <input type="file" accept=".pdf,.docx" disabled={!isLeadTrainer || currentReport?.status === "reviewed"} className="sr-only" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+            </label>
+            {currentReport?.status === "reviewed" && (
+              <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Admin has reviewed this report, so it is locked from further edits.</p>
+            )}
+            {error && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+            <button disabled={submitting || !isLeadTrainer || currentReport?.status === "reviewed"} type="submit" className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-60">
+              <Send size={16} />{submitting ? "Submitting..." : currentReport ? "Update report" : "Submit report"}
+            </button>
+          </form>
+        </Card>
+
+        <Card>
+          <h3 className="font-display text-xl font-bold">Report history</h3>
+          {loading ? (
+            <p className="mt-4 text-sm text-muted-foreground">Loading weekly reports...</p>
+          ) : reports.length ? (
+            <div className="mt-4 space-y-3">
+              {reports.map((report) => (
+                <article key={report.id} className="rounded-xl border border-border bg-muted/30 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold">{report.weekKey}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{new Date(report.submittedAt).toLocaleDateString()}</p>
+                    </div>
+                    <span className="rounded-full bg-card px-2.5 py-1 text-xs font-bold capitalize text-primary">{report.status}</span>
+                  </div>
+                  {report.reportText && <p className="mt-2 line-clamp-4 text-sm leading-6 text-muted-foreground">{report.reportText}</p>}
+                  {report.signedFileUrl && (
+                    <a href={report.signedFileUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-bold text-primary hover:underline">
+                      Open attachment
+                    </a>
+                  )}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 rounded-xl bg-muted/40 p-4 text-sm leading-6 text-muted-foreground">
+              No classroom weekly reports have been submitted yet.
+            </p>
+          )}
+        </Card>
+      </div>
+    </>
+  );
+}
+
 const reportCategories = [
   { value: "classroom", label: "Classroom" },
   { value: "student", label: "Student" },
@@ -3461,6 +3693,160 @@ function ContactAdmin({
           )}
         </Card>
       </div>
+    </>
+  );
+}
+
+function WeeklyTopics({ notify }: { notify: (message: string) => void }) {
+  const [topics, setTopics] = useState<WeeklyTopic[]>([]);
+  const [submissions, setSubmissions] = useState<TrainerWeeklyTopicSubmission[]>([]);
+  const [selectedTopicId, setSelectedTopicId] = useState("");
+  const [textResponse, setTextResponse] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [currentTime] = useState(() => Date.now());
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const submissionByTopic = useMemo(
+    () => new Map(submissions.map((submission) => [submission.weeklyTopicId, submission])),
+    [submissions],
+  );
+  const selectedTopic = topics.find((topic) => topic.id === selectedTopicId) ?? topics[0] ?? null;
+  const selectedSubmission = selectedTopic ? submissionByTopic.get(selectedTopic.id) : null;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const result = await getTrainerWeeklyTopics();
+    setLoading(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    const nextTopics = result.data?.topics ?? [];
+    setTopics(nextTopics);
+    setSubmissions(result.data?.submissions ?? []);
+    setSelectedTopicId((current) => current && nextTopics.some((topic) => topic.id === current) ? current : nextTopics[0]?.id ?? "");
+    setError("");
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedTopic) return setError("Choose a weekly topic.");
+    if (!textResponse.trim() && !file) return setError("Write a response or upload a PDF/DOCX file.");
+    setSubmitting(true);
+    setError("");
+    const result = await submitWeeklyTopicResponse({
+      topicId: selectedTopic.id,
+      textResponse,
+      file,
+    });
+    setSubmitting(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setTextResponse("");
+    setFile(null);
+    if (result.data) {
+      setSubmissions((current) => [result.data!, ...current.filter((item) => item.weeklyTopicId !== result.data!.weeklyTopicId)]);
+    }
+    notify("Weekly topic response submitted.");
+  }
+
+  return (
+    <>
+      <PageHeading eyebrow="individual trainer task" title="Weekly Topics" />
+      {loading ? (
+        <Card><p className="text-sm text-muted-foreground">Loading weekly topics...</p></Card>
+      ) : topics.length ? (
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <Card>
+            <h3 className="font-display text-xl font-bold">Submit response</h3>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              Weekly Topic submissions belong to you as an individual trainer, even when multiple trainers share a classroom.
+            </p>
+            <form onSubmit={submit} className="mt-5 space-y-4">
+              <select value={selectedTopic?.id ?? ""} onChange={(event) => setSelectedTopicId(event.target.value)} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm">
+                {topics.map((topic) => (
+                  <option key={topic.id} value={topic.id}>
+                    {topic.weekKey} · {topic.title}
+                  </option>
+                ))}
+              </select>
+              {selectedTopic && (
+                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-blue-950">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="font-display text-lg font-bold">{selectedTopic.title}</h4>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-blue-800">
+                      Due {new Date(selectedTopic.dueAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-blue-900">{selectedTopic.instructions}</p>
+                </div>
+              )}
+              {selectedSubmission && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  Current status: <b className="capitalize">{selectedSubmission.status}</b>. Submitting again updates your response while it is still submitted.
+                </div>
+              )}
+              <textarea
+                value={textResponse}
+                onChange={(event) => setTextResponse(event.target.value)}
+                maxLength={5000}
+                placeholder="Write your weekly response here."
+                className="min-h-40 w-full rounded-xl border border-border bg-background px-3 py-3 text-sm outline-none focus:border-primary"
+              />
+              <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-dashed border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+                <span className="inline-flex items-center gap-2 font-semibold text-primary">
+                  <Upload size={16} />{file ? file.name : "Optional PDF/DOCX upload"}
+                </span>
+                <input type="file" accept=".pdf,.docx" className="sr-only" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+              </label>
+              {error && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+              <button disabled={submitting} type="submit" className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-60">
+                <Send size={16} />{submitting ? "Submitting..." : "Submit weekly topic"}
+              </button>
+            </form>
+          </Card>
+          <Card>
+            <h3 className="font-display text-xl font-bold">My topic history</h3>
+            <div className="mt-4 space-y-3">
+              {topics.map((topic) => {
+                const submission = submissionByTopic.get(topic.id);
+                const overdue = !submission && new Date(topic.dueAt).getTime() < currentTime;
+                return (
+                  <article key={topic.id} className="rounded-xl border border-border bg-muted/30 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold">{topic.title}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{topic.weekKey} · Due {new Date(topic.dueAt).toLocaleDateString()}</p>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ${submission ? "bg-emerald-100 text-emerald-700" : overdue ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
+                        {submission?.status ?? (overdue ? "overdue" : "missing")}
+                      </span>
+                    </div>
+                    {submission?.textResponse && <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">{submission.textResponse}</p>}
+                    {submission?.signedFileUrl && <a href={submission.signedFileUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-bold text-primary hover:underline">Open uploaded file</a>}
+                  </article>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      ) : (
+        <Card>
+          <h3 className="font-display text-xl font-bold">No weekly topic has been posted yet.</h3>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Admin-published weekly topics will appear here.
+          </p>
+        </Card>
+      )}
     </>
   );
 }

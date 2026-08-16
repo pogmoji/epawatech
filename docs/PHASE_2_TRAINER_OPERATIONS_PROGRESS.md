@@ -57,6 +57,45 @@ This file tracks implementation against `EPAWATECH_PHASE_2_TRAINER_OPERATIONS_CO
 
 Email sending note: the database records `email_notification_status` and `email_sent_at`, and `.env.example` now documents the SMTP variables. Request-scoped SMTP sending still needs a compatible mailer dependency or server mail utility before it can send Truehost mail.
 
+### Part C — Weekly Topics
+
+- Added `supabase/migrations/024_weekly_topics.sql`.
+- Added admin-managed `weekly_topics` records with publish/draft support.
+- Added trainer-owned `trainer_weekly_topic_submissions` records with text response and optional PDF/DOCX attachment support.
+- Added private `weekly-topic-submissions` storage bucket and folder-based policies.
+- Added Trainer → Weekly Topics UI with:
+  - published topic list;
+  - topic instructions and due date;
+  - text response composer;
+  - optional PDF/DOCX upload;
+  - personal submission history and signed attachment links.
+- Added Admin → Weekly Topics UI with:
+  - create/edit topic form;
+  - publish toggle;
+  - due/open dates;
+  - per-active-trainer submission tracking;
+  - reviewed status action.
+
+### Part D — Weekly Classroom Reports
+
+- Added `supabase/migrations/025_classroom_weekly_reports.sql`.
+- Added official classroom-level weekly reports with:
+  - one report per classroom/week;
+  - active Lead Trainer submit/update permission;
+  - read-only history for other assigned classroom trainers;
+  - admin review status;
+  - optional PDF/DOCX attachment storage.
+- Added Trainer → Weekly Report UI with:
+  - current week key;
+  - written report prompt;
+  - optional PDF/DOCX upload;
+  - report history;
+  - read-only mode for non-lead classroom trainers.
+- Added Admin → Weekly Reports UI with:
+  - submitted report inbox;
+  - mark reviewed action;
+  - current-week checklist showing missing classroom reports.
+
 ## Next Step
 
-Continue with Part C: Weekly Topics.
+Continue with Part E from the Phase 2 trainer operations guide.

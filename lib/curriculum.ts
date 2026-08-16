@@ -48,6 +48,7 @@ export type Lesson = {
   title: string
   topics: string[]
   activity: LessonActivity
+  isUnlocked?: boolean
 }
 
 export type Challenge = {
@@ -56,6 +57,7 @@ export type Challenge = {
   description: string
   activity: LessonActivity
   timeLimitSeconds?: number
+  isUnlocked?: boolean
 }
 
 export type Track = {

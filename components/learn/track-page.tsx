@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { BookOpen, Timer, Trophy, ArrowRight, ArrowLeft } from 'lucide-react'
+import { BookOpen, Timer, Trophy, ArrowRight, ArrowLeft, Lock } from 'lucide-react'
 import { Shell } from '@/components/site-shell'
+import { LoginPage } from '@/components/auth-pages'
 import LearnLayout from '@/components/learn/learn-layout'
 import Quiz from '@/components/learn/quiz'
 import DragDrop, { DragClassify } from '@/components/learn/drag-drop'
@@ -21,7 +22,7 @@ import { getStudentEnrollmentContext } from '@/lib/api/student/enrollment'
 import { getStudentProgress, saveActivityProgress } from '@/lib/api/student/progress'
 import type { ProgressSource } from '@/lib/api/student/progress'
 import { saveTypingAttempt } from '@/lib/api/student/typing'
-import { getEffectiveStudentTracks, getStudentActivityRouteMap, type ActivityRouteMap } from '@/lib/api/student/curriculum'
+import { getEffectiveStudentCurriculum, getStudentActivityRouteMap, type ActivityRouteMap } from '@/lib/api/student/curriculum'
 import { GamificationService } from '@/lib/gamification'
 import Link from 'next/link'
 import { useAuth } from '@/components/auth-provider'
@@ -32,12 +33,14 @@ type Props = {
 }
 
 export default function TrackPage({ trackSlug, lessonSlug }: Props) {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const fallbackTrack = getTrack(trackSlug)
   const [track, setTrack] = useState<Track | undefined>(fallbackTrack)
   const [completedLessons, setCompletedLessons] = useState<string[]>([])
   const [lessonDone, setLessonDone] = useState(false)
   const [progressNotice, setProgressNotice] = useState("")
+  const [accessLoading, setAccessLoading] = useState(true)
+  const [lockedMessage, setLockedMessage] = useState("")
 
   const [classroomId, setClassroomId] = useState<string | null>(null)
   const [activityRouteMap, setActivityRouteMap] = useState<ActivityRouteMap>({})
@@ -45,11 +48,15 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
   // Load progress from API
   useEffect(() => {
     async function loadProgress() {
+      if (authLoading) return
       try {
+        setAccessLoading(true)
+        setLockedMessage("")
         if (!user) {
           setCompletedLessons([])
           setTrack(fallbackTrack)
           setClassroomId(null)
+          setAccessLoading(false)
           return
         }
         
@@ -58,6 +65,7 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
           setCompletedLessons([])
           setTrack(fallbackTrack)
           setClassroomId(null)
+          setAccessLoading(false)
           return;
         }
         
@@ -66,9 +74,14 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
         const [progressRes, activityMapRes, curriculumRes] = await Promise.all([
           getStudentProgress(contextRes.data.classroomId),
           getStudentActivityRouteMap(),
-          getEffectiveStudentTracks(contextRes.data.classroomId),
+          getEffectiveStudentCurriculum(contextRes.data.classroomId),
         ]);
-        setTrack(curriculumRes.data?.find((item) => item.slug === trackSlug) ?? fallbackTrack);
+        const effectiveTrack = curriculumRes.data?.tracks.find((item) => item.slug === trackSlug) ?? fallbackTrack;
+        setTrack(effectiveTrack);
+        const isUnlocked = curriculumRes.data?.availability[`${trackSlug}/${lessonSlug}`] ?? true;
+        if (!isUnlocked) {
+          setLockedMessage("Your trainer will unlock this lesson when your class is ready.");
+        }
         const data = progressRes.data || [];
         const routeByActivityId = new Map(
           Object.entries(activityMapRes.data ?? {}).map(([route, id]) => [id, route])
@@ -79,7 +92,7 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
           .flatMap((p) => {
             if (p.status !== "completed") return [];
             const route = p.curriculum_activity_id ? routeByActivityId.get(p.curriculum_activity_id) : null;
-            const customRoute = p.classroom_curriculum_item_id ? findCustomLessonRoute(curriculumRes.data ?? [], p.classroom_curriculum_item_id) : null;
+            const customRoute = p.classroom_curriculum_item_id ? findCustomLessonRoute(curriculumRes.data?.tracks ?? [], p.classroom_curriculum_item_id) : null;
             const completedRoute = route ?? customRoute;
             if (!completedRoute?.startsWith(`${trackSlug}/`)) return [];
             return [completedRoute.split("/").slice(1).join("/")];
@@ -90,16 +103,18 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
       } catch (err) {
         console.warn('Could not load progress:', err)
         setTrack(fallbackTrack)
+      } finally {
+        setAccessLoading(false)
       }
     }
     loadProgress()
-  }, [trackSlug, lessonSlug, user, fallbackTrack])
+  }, [trackSlug, lessonSlug, user, fallbackTrack, authLoading])
 
   const handleLessonComplete = useCallback(
     async (score?: number) => {
       if (lessonDone) return
       if (!user || !classroomId) {
-        setProgressNotice("You can keep exploring, but completion is not saved until you join a classroom.")
+        setProgressNotice("Join a classroom before opening lessons.")
         return
       }
 
@@ -113,6 +128,10 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
       if (!progressSource) {
         setProgressNotice("This activity is available to view, but it does not have a saveable curriculum reference yet.")
         return;
+      }
+      if (lockedMessage) {
+        setProgressNotice("This lesson is locked. Your trainer will unlock it when your class is ready.")
+        return
       }
       const saveResult = await saveActivityProgress(classroomId, progressSource, "completed", { score });
       if (saveResult.error) {
@@ -130,7 +149,7 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
         GamificationService.onLessonCompleted(user.id, `${trackSlug}/${lessonSlug}`)
       }
     },
-    [trackSlug, lessonSlug, lessonDone, user, classroomId, activityRouteMap]
+    [trackSlug, lessonSlug, lessonDone, user, classroomId, activityRouteMap, lockedMessage]
   )
 
   const progressSourceForCurrentLesson = useCallback((): ProgressSource | null => {
@@ -144,7 +163,7 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
   const handleTypingAttempt = useCallback(
     async (wpm: number, accuracy: number, durationSeconds: number) => {
       if (!user || !classroomId) {
-        setProgressNotice("Join a classroom to save typing attempts.")
+        setProgressNotice("Join a classroom before opening lessons.")
         return
       }
 
@@ -165,6 +184,44 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
     [classroomId, handleLessonComplete, progressSourceForCurrentLesson, user]
   )
 
+  if (authLoading) {
+    return (
+      <Shell>
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
+            <p className="mt-4 text-sm font-semibold text-muted-foreground">Checking lesson access...</p>
+          </div>
+        </div>
+      </Shell>
+    )
+  }
+
+  if (!user) {
+    return <LoginPage />
+  }
+
+  if (!accessLoading && !classroomId) {
+    return (
+      <Shell>
+        <div className="flex min-h-[60vh] items-center justify-center px-5">
+          <div className="max-w-md rounded-2xl border border-blue-100 bg-blue-50 p-8 text-center text-blue-950 shadow-sm">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-primary shadow-sm">
+              <Lock size={24} />
+            </div>
+            <h2 className="mt-5 font-display text-2xl font-bold">Join a classroom first</h2>
+            <p className="mt-3 text-sm leading-6 text-blue-900">
+              Lessons open from your student dashboard after your trainer gives you a classroom code.
+            </p>
+            <Link href="/student" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground">
+              Go to student dashboard
+            </Link>
+          </div>
+        </div>
+      </Shell>
+    )
+  }
+
   if (!track) {
     return (
       <Shell>
@@ -181,11 +238,45 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
     )
   }
 
+  if (accessLoading) {
+    return (
+      <Shell>
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
+            <p className="mt-4 text-sm font-semibold text-muted-foreground">Checking lesson access...</p>
+          </div>
+        </div>
+      </Shell>
+    )
+  }
+
   // Determine what to render
   const isChallenge = lessonSlug === 'challenge'
   const lesson = isChallenge ? null : track.lessons.find((item) => item.slug === lessonSlug)
   const challenge = isChallenge ? track.challenge : null
   const activity = isChallenge ? challenge?.activity : lesson?.activity
+
+  if (lockedMessage) {
+    return (
+      <Shell>
+        <LearnLayout track={track} completedLessons={completedLessons}>
+          <div className="flex min-h-[40vh] items-center justify-center">
+            <div className="max-w-md rounded-2xl border border-slate-200 bg-slate-50 p-8 text-center shadow-sm">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-200 text-slate-700">
+                <Lock size={24} />
+              </div>
+              <h2 className="mt-5 font-display text-2xl font-bold text-code-bg">Lesson Locked</h2>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">{lockedMessage}</p>
+              <Link href="/learn" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground">
+                <ArrowLeft size={16} /> Back to modules
+              </Link>
+            </div>
+          </div>
+        </LearnLayout>
+      </Shell>
+    )
+  }
 
   if (!activity) {
     return (
@@ -255,9 +346,9 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
           </div>
 
           {/* Activity */}
-          {(!classroomId || progressNotice) && (
+          {progressNotice && (
             <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-950">
-              {progressNotice || "You are exploring the master curriculum. Join a classroom from the Learn page to save lesson completion."}
+              {progressNotice}
             </div>
           )}
           <div className="min-h-75">

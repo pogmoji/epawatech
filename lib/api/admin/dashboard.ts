@@ -29,6 +29,48 @@ export type TrainerAdminReportRecord = {
   email_sent_at: string | null;
   created_at: string;
   updated_at: string;
+  signed_attachment_url?: string;
+};
+export type WeeklyTopicRecord = {
+  id: string;
+  title: string;
+  instructions: string;
+  week_key: string;
+  starts_at: string | null;
+  due_at: string;
+  published: boolean;
+  created_by_admin_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type TrainerWeeklyTopicSubmissionRecord = {
+  id: string;
+  weekly_topic_id: string;
+  trainer_id: string;
+  text_response: string | null;
+  file_path: string | null;
+  file_name: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  status: "submitted" | "reviewed";
+  submitted_at: string;
+  updated_at: string;
+  signed_file_url?: string;
+};
+export type ClassroomWeeklyReportRecord = {
+  id: string;
+  classroom_id: string;
+  week_key: string;
+  submitted_by_trainer_id: string;
+  report_text: string | null;
+  file_path: string | null;
+  file_name: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  status: "submitted" | "reviewed";
+  submitted_at: string;
+  updated_at: string;
+  signed_file_url?: string;
 };
 
 export type AdminDashboardData = {
@@ -44,6 +86,9 @@ export type AdminDashboardData = {
   challengeLevels: ChallengeLevelRecord[];
   universalChallenges: UniversalChallengeRecord[];
   trainerReports: TrainerAdminReportRecord[];
+  weeklyTopics: WeeklyTopicRecord[];
+  weeklyTopicSubmissions: TrainerWeeklyTopicSubmissionRecord[];
+  classroomWeeklyReports: ClassroomWeeklyReportRecord[];
 };
 
 function unavailable<T>(): AdminResult<T> {
@@ -56,27 +101,46 @@ function failure<T>(message: string): AdminResult<T> {
 
 export async function getAdminDashboardData(): Promise<AdminResult<AdminDashboardData>> {
   if (!supabase) return unavailable();
+  const client = supabase;
 
-  const [centres, cohorts, admins, trainers, students, classrooms, assignments, enrollments, feedback, challengeLevels, universalChallenges, challengeProgress, trainerReports] = await Promise.all([
-    supabase.from("centres").select("id, name, description, status, created_at").order("name"),
-    supabase.from("cohorts").select("id, centre_id, name, status, start_date, end_date, created_at").order("created_at", { ascending: false }),
-    supabase.from("profiles").select("id, full_name, username, phone_number, role, status, created_at").eq("role", "admin").order("full_name"),
-    supabase.from("profiles").select("id, full_name, username, phone_number, role, status, created_at").eq("role", "trainer").order("full_name"),
-    supabase.from("profiles").select("id, full_name, username, phone_number, role, status, created_at").eq("role", "student").order("full_name"),
-    supabase.from("classrooms").select("id, cohort_id, name, status, created_by, created_at").order("name"),
-    supabase.from("trainer_assignments").select("id, trainer_id, classroom_id, centre_id, cohort_id, role, status, start_date, end_date"),
-    supabase.from("student_enrollments").select("id, student_id, classroom_id, status, start_date, end_date"),
-    supabase.from("student_feedback").select("id, student_id, classroom_id, feedback_text, created_at, updated_at").order("created_at", { ascending: false }).limit(100),
-    supabase.from("challenge_levels").select("id, name, slug, difficulty, sort_order, is_active").order("sort_order"),
-    supabase.from("challenges").select("id, level_id, title, description, instructions, sort_order, is_required, is_published, created_by_admin_id, created_at, updated_at").order("sort_order"),
-    supabase.from("student_challenge_progress").select("challenge_id, status").eq("status", "completed"),
-    supabase.from("trainer_admin_reports").select("id, trainer_id, trainer_email, classroom_id, category, priority, subject, message, attachment_path, attachment_file_name, attachment_mime_type, attachment_file_size, status, email_notification_status, email_sent_at, created_at, updated_at").order("created_at", { ascending: false }).limit(100),
+  const [centres, cohorts, admins, trainers, students, classrooms, assignments, enrollments, feedback, challengeLevels, universalChallenges, challengeProgress, trainerReports, weeklyTopics, weeklyTopicSubmissions, classroomWeeklyReports] = await Promise.all([
+    client.from("centres").select("id, name, description, status, created_at").order("name"),
+    client.from("cohorts").select("id, centre_id, name, status, start_date, end_date, created_at").order("created_at", { ascending: false }),
+    client.from("profiles").select("id, full_name, username, phone_number, role, status, created_at").eq("role", "admin").order("full_name"),
+    client.from("profiles").select("id, full_name, username, phone_number, role, status, created_at").eq("role", "trainer").order("full_name"),
+    client.from("profiles").select("id, full_name, username, phone_number, role, status, created_at").eq("role", "student").order("full_name"),
+    client.from("classrooms").select("id, cohort_id, name, status, created_by, created_at").order("name"),
+    client.from("trainer_assignments").select("id, trainer_id, classroom_id, centre_id, cohort_id, role, status, start_date, end_date"),
+    client.from("student_enrollments").select("id, student_id, classroom_id, status, start_date, end_date"),
+    client.from("student_feedback").select("id, student_id, classroom_id, feedback_text, created_at, updated_at").order("created_at", { ascending: false }).limit(100),
+    client.from("challenge_levels").select("id, name, slug, difficulty, sort_order, is_active").order("sort_order"),
+    client.from("challenges").select("id, level_id, title, description, instructions, sort_order, is_required, is_published, created_by_admin_id, created_at, updated_at").order("sort_order"),
+    client.from("student_challenge_progress").select("challenge_id, status").eq("status", "completed"),
+    client.from("trainer_admin_reports").select("id, trainer_id, trainer_email, classroom_id, category, priority, subject, message, attachment_path, attachment_file_name, attachment_mime_type, attachment_file_size, status, email_notification_status, email_sent_at, created_at, updated_at").order("created_at", { ascending: false }).limit(100),
+    client.from("weekly_topics").select("id, title, instructions, week_key, starts_at, due_at, published, created_by_admin_id, created_at, updated_at").order("due_at", { ascending: false }).limit(100),
+    client.from("trainer_weekly_topic_submissions").select("id, weekly_topic_id, trainer_id, text_response, file_path, file_name, file_type, file_size, status, submitted_at, updated_at").order("submitted_at", { ascending: false }).limit(500),
+    client.from("classroom_weekly_reports").select("id, classroom_id, week_key, submitted_by_trainer_id, report_text, file_path, file_name, file_type, file_size, status, submitted_at, updated_at").order("submitted_at", { ascending: false }).limit(500),
   ]);
 
   const requiredQueryError = [centres, cohorts, admins, trainers, students, classrooms, assignments, enrollments].find((result) => result.error)?.error;
   if (requiredQueryError) return failure("Unable to load administrative data. Please try again.");
   const feedbackData = feedback.error ? [] : (feedback.data ?? []) as StudentFeedbackRecord[];
-  const trainerReportsData = trainerReports.error ? [] : (trainerReports.data ?? []) as TrainerAdminReportRecord[];
+  const trainerReportsData = trainerReports.error ? [] : await Promise.all(((trainerReports.data ?? []) as TrainerAdminReportRecord[]).map(async (report) => {
+    if (!report.attachment_path) return report;
+    const signed = await client.storage.from("trainer-report-attachments").createSignedUrl(report.attachment_path, 60 * 10);
+    return { ...report, signed_attachment_url: signed.data?.signedUrl };
+  }));
+  const weeklyTopicsData = weeklyTopics.error ? [] : (weeklyTopics.data ?? []) as WeeklyTopicRecord[];
+  const weeklyTopicSubmissionsData = weeklyTopicSubmissions.error ? [] : await Promise.all(((weeklyTopicSubmissions.data ?? []) as TrainerWeeklyTopicSubmissionRecord[]).map(async (submission) => {
+    if (!submission.file_path) return submission;
+    const signed = await client.storage.from("weekly-topic-submissions").createSignedUrl(submission.file_path, 60 * 10);
+    return { ...submission, signed_file_url: signed.data?.signedUrl };
+  }));
+  const classroomWeeklyReportsData = classroomWeeklyReports.error ? [] : await Promise.all(((classroomWeeklyReports.data ?? []) as ClassroomWeeklyReportRecord[]).map(async (report) => {
+    if (!report.file_path) return report;
+    const signed = await client.storage.from("classroom-weekly-report-attachments").createSignedUrl(report.file_path, 60 * 10);
+    return { ...report, signed_file_url: signed.data?.signedUrl };
+  }));
   const challengeLevelsData = challengeLevels.error ? [] : (challengeLevels.data ?? []) as ChallengeLevelRecord[];
   const completedCounts = new Map<string, number>();
   if (!challengeProgress.error) {
@@ -102,9 +166,100 @@ export async function getAdminDashboardData(): Promise<AdminResult<AdminDashboar
       challengeLevels: challengeLevelsData,
       universalChallenges: universalChallengesData,
       trainerReports: trainerReportsData,
+      weeklyTopics: weeklyTopicsData,
+      weeklyTopicSubmissions: weeklyTopicSubmissionsData,
+      classroomWeeklyReports: classroomWeeklyReportsData,
     },
     error: null,
   };
+}
+
+export async function markClassroomWeeklyReportReviewed(id: string): Promise<AdminResult<ClassroomWeeklyReportRecord>> {
+  if (!supabase) return unavailable();
+
+  const { data, error } = await supabase
+    .from("classroom_weekly_reports")
+    .update({ status: "reviewed" })
+    .eq("id", id)
+    .select("id, classroom_id, week_key, submitted_by_trainer_id, report_text, file_path, file_name, file_type, file_size, status, submitted_at, updated_at")
+    .single();
+
+  if (error) return failure("Classroom weekly report could not be marked reviewed.");
+  return { data: data as ClassroomWeeklyReportRecord, error: null };
+}
+
+export async function createWeeklyTopic(input: {
+  title: string;
+  instructions: string;
+  weekKey: string;
+  startsAt: string;
+  dueAt: string;
+  published: boolean;
+}): Promise<AdminResult<WeeklyTopicRecord>> {
+  if (!supabase) return unavailable();
+
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData.user) return failure("Not authenticated.");
+
+  const { data, error } = await supabase
+    .from("weekly_topics")
+    .insert({
+      title: input.title.trim(),
+      instructions: input.instructions.trim(),
+      week_key: input.weekKey.trim(),
+      starts_at: input.startsAt || null,
+      due_at: input.dueAt,
+      published: input.published,
+      created_by_admin_id: userData.user.id,
+    })
+    .select("id, title, instructions, week_key, starts_at, due_at, published, created_by_admin_id, created_at, updated_at")
+    .single();
+
+  if (error) return failure(error.message.includes("weekly_topics") ? "Run migration 024 before creating weekly topics." : "Weekly topic could not be created.");
+  return { data: data as WeeklyTopicRecord, error: null };
+}
+
+export async function updateWeeklyTopic(input: {
+  id: string;
+  title: string;
+  instructions: string;
+  weekKey: string;
+  startsAt: string;
+  dueAt: string;
+  published: boolean;
+}): Promise<AdminResult<WeeklyTopicRecord>> {
+  if (!supabase) return unavailable();
+
+  const { data, error } = await supabase
+    .from("weekly_topics")
+    .update({
+      title: input.title.trim(),
+      instructions: input.instructions.trim(),
+      week_key: input.weekKey.trim(),
+      starts_at: input.startsAt || null,
+      due_at: input.dueAt,
+      published: input.published,
+    })
+    .eq("id", input.id)
+    .select("id, title, instructions, week_key, starts_at, due_at, published, created_by_admin_id, created_at, updated_at")
+    .single();
+
+  if (error) return failure("Weekly topic could not be updated.");
+  return { data: data as WeeklyTopicRecord, error: null };
+}
+
+export async function markWeeklyTopicSubmissionReviewed(id: string): Promise<AdminResult<TrainerWeeklyTopicSubmissionRecord>> {
+  if (!supabase) return unavailable();
+
+  const { data, error } = await supabase
+    .from("trainer_weekly_topic_submissions")
+    .update({ status: "reviewed" })
+    .eq("id", id)
+    .select("id, weekly_topic_id, trainer_id, text_response, file_path, file_name, file_type, file_size, status, submitted_at, updated_at")
+    .single();
+
+  if (error) return failure("Weekly topic submission could not be marked reviewed.");
+  return { data: data as TrainerWeeklyTopicSubmissionRecord, error: null };
 }
 
 export async function updateTrainerAdminReportStatus(input: {

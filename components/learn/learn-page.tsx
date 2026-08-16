@@ -3,13 +3,15 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Monitor, FileText, BookOpen, ArrowRight, Check, Trophy, KeyRound } from 'lucide-react'
+import { Monitor, FileText, BookOpen, ArrowRight, Check, Trophy, KeyRound, Lock } from 'lucide-react'
 import { Shell } from '@/components/site-shell'
+import { LoginPage } from '@/components/auth-pages'
 import { tracks, type Track } from '@/lib/curriculum'
 import { getStudentEnrollmentContext, joinClassroomByCode, type EnrollmentContext } from '@/lib/api/student/enrollment'
 import { getStudentProgress } from '@/lib/api/student/progress'
-import { getEffectiveStudentTracks, getStudentActivityRouteMap } from '@/lib/api/student/curriculum'
+import { getEffectiveStudentCurriculum, getStudentActivityRouteMap } from '@/lib/api/student/curriculum'
 import { getMyAttendance, type StudentAttendanceRecord } from '@/lib/api/student/attendance'
 import { getMyWeeklyComments, type StudentWeeklyComment } from '@/lib/api/student/comments'
 import { getClassroomTypingLeaderboard, getMyTypingAttempts, summarizeTypingAttempts, type TypingAttempt, type TypingSummary } from '@/lib/api/student/typing'
@@ -18,7 +20,8 @@ import { useAuth } from '@/components/auth-provider'
 const ICONS: Record<string, typeof Monitor> = { Monitor, FileText }
 
 export default function LearnPage() {
-  const { user } = useAuth()
+  const router = useRouter()
+  const { user, loading: authLoading } = useAuth()
   const [progress, setProgress] = useState<Record<string, string[]>>({})
   const [effectiveTracks, setEffectiveTracks] = useState<Track[]>(tracks)
   const [enrollment, setEnrollment] = useState<EnrollmentContext | null>(null)
@@ -33,6 +36,7 @@ export default function LearnPage() {
 
   useEffect(() => {
     async function load() {
+      if (authLoading) return
       try {
         if (!user) {
           setProgress({})
@@ -63,13 +67,13 @@ export default function LearnPage() {
         const [progressRes, activityMapRes, curriculumRes, attendanceRes, commentsRes, typingRes, leaderboardRes] = await Promise.all([
           getStudentProgress(contextRes.data.classroomId),
           getStudentActivityRouteMap(),
-          getEffectiveStudentTracks(contextRes.data.classroomId),
+          getEffectiveStudentCurriculum(contextRes.data.classroomId),
           getMyAttendance(contextRes.data.classroomId),
           getMyWeeklyComments(contextRes.data.classroomId),
           getMyTypingAttempts(contextRes.data.classroomId),
           getClassroomTypingLeaderboard(contextRes.data.classroomId),
         ]);
-        if (curriculumRes.data) setEffectiveTracks(curriculumRes.data)
+        if (curriculumRes.data) setEffectiveTracks(curriculumRes.data.tracks)
         setAttendance(attendanceRes.data ?? [])
         setComments(commentsRes.data ?? [])
         setTypingAttempts(typingRes.data ?? [])
@@ -84,7 +88,7 @@ export default function LearnPage() {
         for (const item of data) {
           if (item.status === "completed") {
             const route = item.curriculum_activity_id ? routeByActivityId.get(item.curriculum_activity_id) : null;
-            const customSlug = item.classroom_curriculum_item_id ? findCustomLessonRoute(curriculumRes.data ?? [], item.classroom_curriculum_item_id) : null;
+            const customSlug = item.classroom_curriculum_item_id ? findCustomLessonRoute(curriculumRes.data?.tracks ?? [], item.classroom_curriculum_item_id) : null;
             const completedRoute = route ?? customSlug;
             if (!completedRoute) continue;
             const [trackSlug, lessonSlug] = completedRoute.split("/");
@@ -106,7 +110,7 @@ export default function LearnPage() {
       }
     }
     load()
-  }, [user])
+  }, [authLoading, user])
 
   const handleJoin = async (event: FormEvent) => {
     event.preventDefault()
@@ -120,8 +124,16 @@ export default function LearnPage() {
       return
     }
     setJoinCode('')
-    setJoinMessage('Classroom joined. Loading your classroom curriculum...')
-    window.location.reload()
+    setJoinMessage('Classroom joined. Opening your student dashboard...')
+    router.replace('/student')
+  }
+
+  if (authLoading) {
+    return <main className="flex min-h-screen items-center justify-center bg-background p-6 text-sm font-semibold text-muted-foreground">Checking your session...</main>
+  }
+
+  if (!user) {
+    return <LoginPage />
   }
 
   return (
@@ -155,14 +167,19 @@ export default function LearnPage() {
           />
         ) : null}
 
-        {/* Track cards */}
-        <div className="mt-14 grid gap-6 md:grid-cols-2">
-          {effectiveTracks.map((track, i) => {
+        {enrollment ? (
+          <div className="mt-14 grid gap-6 md:grid-cols-2">
+            {effectiveTracks.map((track, i) => {
             const Icon = ICONS[track.icon] || BookOpen
             const completed = progress[track.slug] || []
             const totalLessons = track.lessons.length + (track.challenge ? 1 : 0)
             const pct = Math.round((completed.length / totalLessons) * 100)
-            const firstLesson = track.lessons[0]
+            const firstUnlockedLesson = track.lessons.find((lesson) => lesson.isUnlocked !== false)
+            const firstAvailableHref = firstUnlockedLesson
+              ? `/learn/${track.slug}/${firstUnlockedLesson.slug}`
+              : track.challenge?.isUnlocked !== false && track.challenge
+                ? `/learn/${track.slug}/challenge`
+                : null
 
             return (
               <motion.article
@@ -195,7 +212,26 @@ export default function LearnPage() {
                   <div className="mt-6 space-y-2">
                     {track.lessons.map((lesson, li) => {
                       const isDone = completed.includes(lesson.slug)
-                      return (
+                      const isLocked = lesson.isUnlocked === false
+                      return isLocked ? (
+                        <div
+                          key={lesson.slug}
+                          className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm"
+                        >
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-600">
+                            <Lock size={12} />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-semibold text-slate-700">{lesson.title}</span>
+                              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">Locked</span>
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-slate-500">
+                              Your trainer will unlock this lesson when your class is ready.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
                         <Link
                           key={lesson.slug}
                           href={`/learn/${track.slug}/${lesson.slug}`}
@@ -213,15 +249,30 @@ export default function LearnPage() {
                       )
                     })}
                     {track.challenge && (
-                      <Link
-                        href={`/learn/${track.slug}/challenge`}
-                        className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition hover:bg-accent/10"
-                      >
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-accent text-xs font-bold text-accent-foreground">
-                          <Trophy size={12} />
-                        </span>
-                        <span className="font-semibold text-accent-foreground">{track.challenge.title}</span>
-                      </Link>
+                      track.challenge.isUnlocked === false ? (
+                        <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-600">
+                            <Lock size={12} />
+                          </span>
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-semibold text-slate-700">{track.challenge.title}</span>
+                              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">Locked</span>
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-slate-500">Your trainer will unlock this challenge when your class is ready.</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <Link
+                          href={`/learn/${track.slug}/challenge`}
+                          className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition hover:bg-accent/10"
+                        >
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-accent text-xs font-bold text-accent-foreground">
+                            <Trophy size={12} />
+                          </span>
+                          <span className="font-semibold text-accent-foreground">{track.challenge.title}</span>
+                        </Link>
+                      )
                     )}
                   </div>
 
@@ -240,17 +291,32 @@ export default function LearnPage() {
                   </div>
 
                   {/* Start/Continue CTA */}
-                  <Link
-                    href={`/learn/${track.slug}/${firstLesson.slug}`}
-                    className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:brightness-95"
-                  >
-                    {completed.length > 0 ? 'Continue Learning' : 'Start Track'} <ArrowRight size={16} />
-                  </Link>
+                  {firstAvailableHref ? (
+                    <Link
+                      href={firstAvailableHref}
+                      className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:brightness-95"
+                    >
+                      {completed.length > 0 ? 'Continue Learning' : 'Start Track'} <ArrowRight size={16} />
+                    </Link>
+                  ) : (
+                    <div className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm font-bold text-slate-600">
+                      <Lock size={16} /> Waiting for trainer unlock
+                    </div>
+                  )}
                 </div>
               </motion.article>
             )
-          })}
-        </div>
+            })}
+          </div>
+        ) : (
+          <ClassroomRequiredNotice
+            joinCode={joinCode}
+            setJoinCode={setJoinCode}
+            joining={joining}
+            message={joinMessage}
+            onSubmit={handleJoin}
+          />
+        )}
       </div>
     </Shell>
   )
@@ -306,6 +372,45 @@ function ExploreNotice({
           {message && <p className="text-xs font-semibold text-blue-900">{message}</p>}
         </form>
       </div>
+    </section>
+  )
+}
+
+function ClassroomRequiredNotice({
+  joinCode,
+  setJoinCode,
+  joining,
+  message,
+  onSubmit,
+}: {
+  joinCode: string
+  setJoinCode: (value: string) => void
+  joining: boolean
+  message: string
+  onSubmit: (event: FormEvent) => void
+}) {
+  return (
+    <section className="mx-auto mt-12 max-w-2xl rounded-2xl border border-blue-100 bg-blue-50 p-7 text-center text-blue-950 shadow-sm">
+      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-primary shadow-sm">
+        <KeyRound size={24} />
+      </div>
+      <h2 className="mt-4 font-display text-2xl font-bold">Join your classroom first</h2>
+      <p className="mt-3 text-sm leading-6 text-blue-900">
+        Your trainer controls the classroom curriculum. Enter your classroom code to open the correct lessons and save your progress.
+      </p>
+      <form onSubmit={onSubmit} className="mx-auto mt-5 flex max-w-md flex-col gap-3 sm:flex-row">
+        <input
+          value={joinCode}
+          onChange={(event) => setJoinCode(event.target.value)}
+          placeholder="Classroom code"
+          className="min-w-0 flex-1 rounded-xl border border-blue-200 bg-white px-3 py-3 text-sm font-semibold uppercase tracking-wide outline-none focus:border-primary"
+        />
+        <button disabled={joining} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground disabled:opacity-60">
+          <KeyRound size={16} />
+          {joining ? 'Joining...' : 'Join'}
+        </button>
+      </form>
+      {message && <p className="mt-4 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-primary">{message}</p>}
     </section>
   )
 }

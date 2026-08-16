@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Archive, Building2, Check, ClipboardList, GraduationCap, LayoutDashboard, Menu, MessageSquareText, Plus, School, Trophy, Users, X } from "lucide-react";
+import { Archive, Building2, CalendarDays, Check, ClipboardCheck, ClipboardList, GraduationCap, LayoutDashboard, Menu, MessageSquareText, Plus, School, Trophy, Users, X } from "lucide-react";
 import {
   activateClassroom,
   archiveClassroom,
@@ -12,25 +12,31 @@ import {
   createClassroom,
   createCohort,
   createUniversalChallenge,
+  createWeeklyTopic,
   getAdminDashboardData,
+  markClassroomWeeklyReportReviewed,
+  markWeeklyTopicSubmissionReviewed,
   reassignTrainerToClassroom,
   removeTrainerFromClassroom,
   updateTrainerAdminReportStatus,
   updateTrainerStatus,
   updateUniversalChallenge,
+  updateWeeklyTopic,
   type AdminDashboardData,
   type Centre,
   type Classroom,
+  type ClassroomWeeklyReportRecord,
   type Cohort,
   type ProfileRecord,
   type TrainerAdminReportRecord,
   type UniversalChallengeRecord,
+  type WeeklyTopicRecord,
 } from "@/lib/api/admin/dashboard";
 import { ProfileCorrections } from "@/components/admin/profile-corrections";
 import { TrainerPasswordReset } from "@/components/admin/trainer-password-reset";
 import { useAuth } from "@/components/auth-provider";
 
-type View = "overview" | "centres" | "cohorts" | "trainers" | "classrooms" | "students" | "trainer-reports" | "challenges" | "feedback" | "activity";
+type View = "overview" | "centres" | "cohorts" | "trainers" | "classrooms" | "students" | "trainer-reports" | "weekly-topics" | "weekly-reports" | "challenges" | "feedback" | "activity";
 type AssignmentRole = "lead" | "co_teacher";
 type ClassroomStatus = "pending" | "active";
 
@@ -49,6 +55,8 @@ const navigation: { id: View; label: string; icon: typeof LayoutDashboard }[] = 
   { id: "classrooms", label: "Classrooms", icon: ClipboardList },
   { id: "students", label: "Students", icon: Users },
   { id: "trainer-reports", label: "Trainer Reports", icon: MessageSquareText },
+  { id: "weekly-topics", label: "Weekly Topics", icon: CalendarDays },
+  { id: "weekly-reports", label: "Weekly Reports", icon: ClipboardCheck },
   { id: "challenges", label: "Challenges", icon: Trophy },
   { id: "feedback", label: "Feedback", icon: MessageSquareText },
   { id: "activity", label: "Account tools", icon: Check },
@@ -67,6 +75,13 @@ function Status({ value }: { value: string }) {
 
 function formatDate(value: string | null) {
   return value ? new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(value)) : "-";
+}
+
+function currentWeekNumber() {
+  const now = new Date();
+  const firstDay = new Date(now.getFullYear(), 0, 1);
+  const elapsedDays = Math.floor((now.getTime() - firstDay.getTime()) / 86_400_000);
+  return Math.min(52, Math.max(1, Math.ceil((elapsedDays + firstDay.getDay() + 1) / 7)));
 }
 
 export function AdminDashboard() {
@@ -105,6 +120,13 @@ export function AdminDashboard() {
   const [challengeSortOrder, setChallengeSortOrder] = useState("1");
   const [challengeRequired, setChallengeRequired] = useState(true);
   const [challengePublished, setChallengePublished] = useState(false);
+  const [topicEditingId, setTopicEditingId] = useState<string | null>(null);
+  const [topicTitle, setTopicTitle] = useState("");
+  const [topicInstructions, setTopicInstructions] = useState("");
+  const [topicWeekKey, setTopicWeekKey] = useState(`week-${currentWeekNumber()}`);
+  const [topicStartsAt, setTopicStartsAt] = useState("");
+  const [topicDueAt, setTopicDueAt] = useState("");
+  const [topicPublished, setTopicPublished] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -143,6 +165,8 @@ export function AdminDashboard() {
     { label: "Pending classrooms", value: dashboard.classrooms.filter((item) => item.status === "pending").length, icon: Check },
     { label: "Active students", value: dashboard.students.filter((item) => item.status === "active").length, icon: Users },
     { label: "Trainer reports", value: dashboard.trainerReports.filter((item) => item.status !== "resolved").length, icon: MessageSquareText },
+    { label: "Weekly topics", value: dashboard.weeklyTopics.length, icon: CalendarDays },
+    { label: "Classroom weekly reports", value: dashboard.classroomWeeklyReports.filter((item) => item.status !== "reviewed").length, icon: ClipboardCheck },
     { label: "Universal challenges", value: dashboard.universalChallenges.length, icon: Trophy },
     { label: "Student reflections", value: dashboard.feedback.length, icon: MessageSquareText },
   ] : [];
@@ -285,6 +309,55 @@ export function AdminDashboard() {
     setChallengePublished(false);
   }
 
+  function resetTopicForm() {
+    setTopicEditingId(null);
+    setTopicTitle("");
+    setTopicInstructions("");
+    setTopicWeekKey(`week-${currentWeekNumber()}`);
+    setTopicStartsAt("");
+    setTopicDueAt("");
+    setTopicPublished(false);
+  }
+
+  function editTopic(topic: WeeklyTopicRecord) {
+    setTopicEditingId(topic.id);
+    setTopicTitle(topic.title);
+    setTopicInstructions(topic.instructions);
+    setTopicWeekKey(topic.week_key);
+    setTopicStartsAt(topic.starts_at ? topic.starts_at.slice(0, 16) : "");
+    setTopicDueAt(topic.due_at ? topic.due_at.slice(0, 16) : "");
+    setTopicPublished(topic.published);
+    setView("weekly-topics");
+  }
+
+  async function submitTopic(event: FormEvent) {
+    event.preventDefault();
+    if (!topicTitle.trim() || !topicInstructions.trim() || !topicWeekKey.trim() || !topicDueAt) {
+      return setError("Enter a title, instructions, week key, and due date.");
+    }
+    const payload = {
+      title: topicTitle,
+      instructions: topicInstructions,
+      weekKey: topicWeekKey,
+      startsAt: topicStartsAt ? new Date(topicStartsAt).toISOString() : "",
+      dueAt: new Date(topicDueAt).toISOString(),
+      published: topicPublished,
+    };
+    const result = await runAdminAction(
+      () => topicEditingId ? updateWeeklyTopic({ id: topicEditingId, ...payload }) : createWeeklyTopic(payload),
+      topicEditingId ? "Weekly topic updated." : "Weekly topic created.",
+    );
+    if (result) resetTopicForm();
+  }
+
+  async function reviewWeeklyTopicSubmission(id: string) {
+    await runAdminAction(() => markWeeklyTopicSubmissionReviewed(id), "Weekly topic submission marked reviewed.");
+  }
+
+  async function reviewClassroomWeeklyReport(report: ClassroomWeeklyReportRecord) {
+    await runAdminAction(() => markClassroomWeeklyReportReviewed(report.id), "Classroom weekly report marked reviewed.");
+  }
+
   function editChallenge(challenge: UniversalChallengeRecord) {
     setChallengeEditingId(challenge.id);
     setChallengeLevel(challenge.level_id);
@@ -396,6 +469,24 @@ export function AdminDashboard() {
               onComplete={complete}
               onArchive={archive}
               onTrainerReportStatus={updateTrainerReportStatus}
+              topicEditingId={topicEditingId}
+              topicTitle={topicTitle}
+              setTopicTitle={setTopicTitle}
+              topicInstructions={topicInstructions}
+              setTopicInstructions={setTopicInstructions}
+              topicWeekKey={topicWeekKey}
+              setTopicWeekKey={setTopicWeekKey}
+              topicStartsAt={topicStartsAt}
+              setTopicStartsAt={setTopicStartsAt}
+              topicDueAt={topicDueAt}
+              setTopicDueAt={setTopicDueAt}
+              topicPublished={topicPublished}
+              setTopicPublished={setTopicPublished}
+              onTopicSubmit={submitTopic}
+              onEditTopic={editTopic}
+              onCancelTopicEdit={resetTopicForm}
+              onReviewWeeklyTopicSubmission={reviewWeeklyTopicSubmission}
+              onReviewClassroomWeeklyReport={reviewClassroomWeeklyReport}
               challengeEditingId={challengeEditingId}
               challengeLevel={challengeLevel}
               setChallengeLevel={setChallengeLevel}
@@ -479,6 +570,24 @@ type ContentProps = {
   onComplete: (id: string) => Promise<void>;
   onArchive: (id: string) => Promise<void>;
   onTrainerReportStatus: (report: TrainerAdminReportRecord, status: "reviewed" | "resolved") => Promise<void>;
+  topicEditingId: string | null;
+  topicTitle: string;
+  setTopicTitle: (value: string) => void;
+  topicInstructions: string;
+  setTopicInstructions: (value: string) => void;
+  topicWeekKey: string;
+  setTopicWeekKey: (value: string) => void;
+  topicStartsAt: string;
+  setTopicStartsAt: (value: string) => void;
+  topicDueAt: string;
+  setTopicDueAt: (value: string) => void;
+  topicPublished: boolean;
+  setTopicPublished: (value: boolean) => void;
+  onTopicSubmit: (event: FormEvent) => Promise<void>;
+  onEditTopic: (topic: WeeklyTopicRecord) => void;
+  onCancelTopicEdit: () => void;
+  onReviewWeeklyTopicSubmission: (id: string) => Promise<void>;
+  onReviewClassroomWeeklyReport: (report: ClassroomWeeklyReportRecord) => Promise<void>;
   challengeEditingId: string | null;
   challengeLevel: string;
   setChallengeLevel: (value: string) => void;
@@ -507,6 +616,8 @@ function DashboardContent(p: ContentProps) {
   if (p.view === "classrooms") return <ClassroomsView {...p} />;
   if (p.view === "students") return <StudentsView {...p} />;
   if (p.view === "trainer-reports") return <TrainerReportsView {...p} />;
+  if (p.view === "weekly-topics") return <WeeklyTopicsView {...p} />;
+  if (p.view === "weekly-reports") return <ClassroomWeeklyReportsView {...p} />;
   if (p.view === "challenges") return <ChallengesView {...p} />;
   if (p.view === "feedback") return <FeedbackView {...p} />;
   return <div className="space-y-6"><div><h2 className="font-display text-xl font-bold">Account tools</h2><p className="mt-1 text-sm text-muted-foreground">Sensitive actions use the authenticated admin session and existing protected endpoints.</p></div><ProfileCorrections /><TrainerPasswordReset /></div>;
@@ -695,10 +806,180 @@ function TrainerReportsView(p: ContentProps) {
                 Attachment: {report.attachment_file_name}
               </p>
             )}
+            {report.signed_attachment_url && (
+              <a href={report.signed_attachment_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-bold text-primary hover:underline">
+                Open attachment
+              </a>
+            )}
           </article>
         );
       })}
     </ListCard>
+  );
+}
+
+function WeeklyTopicsView(p: ContentProps) {
+  const [currentTime] = useState(() => Date.now());
+  const activeTrainers = p.dashboard.trainers.filter((trainer) => trainer.status === "active");
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <ListCard title="Weekly topics" empty="No weekly topics have been created yet.">
+        {p.dashboard.weeklyTopics.map((topic) => {
+          const submissions = p.dashboard.weeklyTopicSubmissions.filter((submission) => submission.weekly_topic_id === topic.id);
+          const dueDate = new Date(topic.due_at);
+          const overdue = Number.isFinite(dueDate.getTime()) && dueDate.getTime() < currentTime;
+
+          return (
+            <section key={topic.id} className="border-b border-slate-100 py-5 last:border-0">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-display text-lg font-bold">{topic.title}</p>
+                    <Status value={topic.published ? "published" : "draft"} />
+                    {overdue && <Status value="overdue" />}
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {topic.week_key} · Opens {formatDate(topic.starts_at)} · Due {formatDate(topic.due_at)}
+                  </p>
+                  <p className="mt-3 whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-700">{topic.instructions}</p>
+                </div>
+                <button onClick={() => p.onEditTopic(topic)} className="w-fit rounded-lg border border-border bg-white px-3 py-2 text-xs font-bold text-primary">
+                  Edit
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-slate-200 bg-white">
+                <div className="grid gap-2 border-b border-slate-100 px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500 sm:grid-cols-[1fr_130px_110px]">
+                  <span>Trainer</span>
+                  <span>Submitted</span>
+                  <span>Status</span>
+                </div>
+                {activeTrainers.length ? activeTrainers.map((trainer) => {
+                  const submission = submissions.find((item) => item.trainer_id === trainer.id);
+                  const status = submission ? submission.status : overdue ? "missing" : "pending";
+                  return (
+                    <div key={`${topic.id}-${trainer.id}`} className="grid gap-2 border-b border-slate-100 px-3 py-3 text-sm last:border-0 sm:grid-cols-[1fr_130px_110px] sm:items-center">
+                      <div>
+                        <p className="font-semibold">{trainer.full_name || "Unnamed trainer"}</p>
+                        {submission?.text_response && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{submission.text_response}</p>}
+                        {submission?.file_name && <p className="mt-1 text-xs font-semibold text-muted-foreground">File: {submission.file_name}</p>}
+                        {submission?.signed_file_url && (
+                          <a href={submission.signed_file_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex text-xs font-bold text-primary hover:underline">
+                            Open file
+                          </a>
+                        )}
+                      </div>
+                      <p className="text-muted-foreground">{submission ? formatDate(submission.submitted_at) : "-"}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Status value={status} />
+                        {submission?.status === "submitted" && (
+                          <button disabled={p.busy} onClick={() => void p.onReviewWeeklyTopicSubmission(submission.id)} className="rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                            Review
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }) : (
+                  <p className="px-3 py-4 text-sm text-muted-foreground">No active trainers are available for this topic.</p>
+                )}
+                <p className="border-t border-slate-100 px-3 py-2 text-xs text-muted-foreground">
+                  {submissions.length} of {activeTrainers.length} active trainer{submissions.length === 1 ? "" : "s"} submitted.
+                </p>
+              </div>
+            </section>
+          );
+        })}
+      </ListCard>
+
+      <FormCard title={p.topicEditingId ? "Edit weekly topic" : "Create weekly topic"} onSubmit={p.onTopicSubmit} busy={p.busy} button={p.topicEditingId ? "Update topic" : "Create topic"}>
+        <Input value={p.topicTitle} onChange={p.setTopicTitle} placeholder="Topic title" />
+        <Input value={p.topicWeekKey} onChange={p.setTopicWeekKey} placeholder="Week key, e.g. week-12" />
+        <Input type="datetime-local" value={p.topicStartsAt} onChange={p.setTopicStartsAt} />
+        <Input type="datetime-local" value={p.topicDueAt} onChange={p.setTopicDueAt} />
+        <textarea value={p.topicInstructions} onChange={(event) => p.setTopicInstructions(event.target.value)} maxLength={3000} placeholder="Instructions for trainers" className="min-h-36 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+        <label className="flex items-center gap-2 text-sm font-semibold">
+          <input type="checkbox" checked={p.topicPublished} onChange={(event) => p.setTopicPublished(event.target.checked)} />
+          Published to trainers
+        </label>
+        {p.topicEditingId && (
+          <button type="button" onClick={p.onCancelTopicEdit} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-slate-700">Cancel edit</button>
+        )}
+      </FormCard>
+    </div>
+  );
+}
+
+function ClassroomWeeklyReportsView(p: ContentProps) {
+  const currentWeekKey = `week-${currentWeekNumber()}`;
+  const activeClassrooms = p.dashboard.classrooms.filter((room) => room.status === "active");
+  const reportsByClassroomAndWeek = new Map(p.dashboard.classroomWeeklyReports.map((report) => [`${report.classroom_id}:${report.week_key}`, report]));
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <ListCard title="Classroom weekly reports" empty="No classroom weekly reports have been submitted yet.">
+        {p.dashboard.classroomWeeklyReports.map((report) => {
+          const classroom = p.maps.classrooms.get(report.classroom_id);
+          const cohort = classroom ? p.maps.cohorts.get(classroom.cohort_id) : undefined;
+          const centre = cohort ? p.maps.centres.get(cohort.centre_id) : undefined;
+          const trainer = p.maps.profiles.get(report.submitted_by_trainer_id);
+          return (
+            <article key={report.id} className="border-b border-slate-100 py-5 last:border-0">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-display text-lg font-bold">{classroom?.name || "Unknown classroom"}</p>
+                    <Status value={report.status} />
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {report.week_key} · {centre?.name || "No centre"} · Submitted by {trainer?.full_name || "Unknown trainer"} · {formatDate(report.submitted_at)}
+                  </p>
+                  {report.report_text && <p className="mt-3 whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-700">{report.report_text}</p>}
+                  {report.file_name && <p className="mt-2 text-xs font-semibold text-muted-foreground">Attachment: {report.file_name}</p>}
+                  {report.signed_file_url && (
+                    <a href={report.signed_file_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-bold text-primary hover:underline">
+                      Open attachment
+                    </a>
+                  )}
+                </div>
+                {report.status === "submitted" && (
+                  <button disabled={p.busy} onClick={() => void p.onReviewClassroomWeeklyReport(report)} className="w-fit rounded-lg bg-primary px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+                    Mark reviewed
+                  </button>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </ListCard>
+
+      <section className="h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="font-display text-xl font-bold">Current week checklist</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Expected official reports for {currentWeekKey}.</p>
+        <div className="mt-4 space-y-3">
+          {activeClassrooms.length ? activeClassrooms.map((room) => {
+            const report = reportsByClassroomAndWeek.get(`${room.id}:${currentWeekKey}`);
+            const lead = p.dashboard.assignments.find((assignment) => assignment.classroom_id === room.id && assignment.role === "lead" && assignment.status === "active");
+            const cohort = p.maps.cohorts.get(room.cohort_id);
+            const centre = cohort ? p.maps.centres.get(cohort.centre_id) : undefined;
+            return (
+              <div key={room.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold">{room.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{centre?.name || "No centre"} · Lead: {lead ? p.maps.profiles.get(lead.trainer_id)?.full_name || "Unknown trainer" : "Unassigned"}</p>
+                  </div>
+                  <Status value={report ? report.status : "missing"} />
+                </div>
+              </div>
+            );
+          }) : (
+            <p className="rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">No active classrooms need weekly reports right now.</p>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 
