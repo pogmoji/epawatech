@@ -1,11 +1,7 @@
 import { Analytics } from "@vercel/analytics/next";
-import { Outfit, Inter } from "next/font/google";
 import type { Metadata, Viewport } from "next";
 import { AuthProvider } from "@/components/auth-provider";
 import "./globals.css";
-
-const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
   title: "ePawatech | Empowering the Next Generation of Tech Innovators",
@@ -44,7 +40,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="bg-background">
       <body
-        className={`${outfit.variable} ${inter.variable} antialiased font-sans`}
+        className="antialiased font-sans"
       >
         <AuthProvider>{children}</AuthProvider>
         {process.env.NODE_ENV === "production" && <Analytics />}

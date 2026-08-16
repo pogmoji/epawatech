@@ -125,11 +125,18 @@ export function LoginPage() {
       );
     setError("");
     setBusy(true);
-    const { data, error: signInError } = await supabase.auth.signInWithPassword(
-      { email: signInEmail, password },
-    );
+    const { data, error: signInError } = await supabase.auth
+      .signInWithPassword({ email: signInEmail, password })
+      .catch(() => ({
+        data: { user: null, session: null },
+        error: { message: "Network error" },
+      }));
     if (signInError || !data.user) {
-      setError(friendlyAuthError(signInError?.message ?? "Unable to sign in."));
+      setError(
+        signInError?.message === "Network error"
+          ? "Could not reach Supabase. Check your internet connection, Supabase project status, or network firewall, then try again."
+          : friendlyAuthError(signInError?.message ?? "Unable to sign in."),
+      );
       setBusy(false);
       return;
     }

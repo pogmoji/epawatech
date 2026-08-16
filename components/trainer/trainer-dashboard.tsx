@@ -484,9 +484,9 @@ export default function TrainerDashboard() {
   return (
     <div className="min-h-screen bg-[#f5f8fc] text-code-bg">
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-70 flex-col bg-primary px-4 py-6 text-primary-foreground shadow-xl transition-transform lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}
+        className={`fixed inset-y-0 left-0 z-40 flex w-70 flex-col overflow-hidden bg-primary px-4 py-6 text-primary-foreground shadow-xl transition-transform lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
-        <div className="flex items-center justify-between px-3">
+        <div className="flex shrink-0 items-center justify-between px-3">
           <div>
             <p className="font-display text-xl font-bold">ePawatech</p>
             <p className="text-xs text-primary-foreground/65">
@@ -501,10 +501,10 @@ export default function TrainerDashboard() {
             <X size={19} />
           </button>
         </div>
-        <div className="mt-9 px-3 text-[10px] font-bold uppercase tracking-[.17em] text-primary-foreground/55">
+        <div className="mt-9 shrink-0 px-3 text-[10px] font-bold uppercase tracking-[.17em] text-primary-foreground/55">
           Classroom tools
         </div>
-        <nav className="mt-3 space-y-1">
+        <nav className="mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
           {nav.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -516,7 +516,7 @@ export default function TrainerDashboard() {
             </button>
           ))}
         </nav>
-        <div className="mt-auto rounded-2xl bg-primary-foreground/10 p-4">
+        <div className="mt-4 shrink-0 rounded-2xl bg-primary-foreground/10 p-4">
           <p className="text-xs font-bold">{activeClassroom.centreName}</p>
           <p className="mt-1 text-xs text-primary-foreground/70">
             {activeClassroom.cohortName} · {activeClassroom.name}

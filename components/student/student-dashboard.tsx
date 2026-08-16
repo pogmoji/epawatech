@@ -248,8 +248,8 @@ export default function StudentDashboard() {
 
   return (
     <div className="min-h-screen bg-[#f5f8fc] text-code-bg">
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-70 flex-col bg-primary px-4 py-6 text-primary-foreground shadow-xl transition-transform lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="flex items-center justify-between px-3">
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-70 flex-col overflow-hidden bg-primary px-4 py-6 text-primary-foreground shadow-xl transition-transform lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <div className="flex shrink-0 items-center justify-between px-3">
           <div>
             <p className="font-display text-xl font-bold">ePawatech</p>
             <p className="text-xs text-primary-foreground/65">Student workspace</p>
@@ -258,8 +258,8 @@ export default function StudentDashboard() {
             <X size={19} />
           </button>
         </div>
-        <div className="mt-9 px-3 text-[10px] font-bold uppercase tracking-[.17em] text-primary-foreground/55">My dashboard</div>
-        <nav className="mt-3 space-y-1">
+        <div className="mt-9 shrink-0 px-3 text-[10px] font-bold uppercase tracking-[.17em] text-primary-foreground/55">My dashboard</div>
+        <nav className="mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
           {nav.map(({ id, label, icon: Icon }) => (
             <button key={id} onClick={() => changeView(id)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${view === id ? "bg-primary-foreground text-primary shadow-sm" : "text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground"}`}>
               <Icon size={18} />
@@ -267,7 +267,7 @@ export default function StudentDashboard() {
             </button>
           ))}
         </nav>
-        <div className="mt-auto rounded-2xl bg-primary-foreground/10 p-4">
+        <div className="mt-4 shrink-0 rounded-2xl bg-primary-foreground/10 p-4">
           <button onClick={() => changeView("profile")} className="flex w-full items-center gap-3 text-left">
             <AvatarCircle initials={initials} avatarUrl={studentProfile?.avatarUrl} className="h-10 w-10 text-sm" />
             <span className="min-w-0">

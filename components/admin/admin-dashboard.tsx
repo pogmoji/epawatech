@@ -55,7 +55,7 @@ const navigation: { id: View; label: string; icon: typeof LayoutDashboard }[] = 
   { id: "classrooms", label: "Classrooms", icon: ClipboardList },
   { id: "students", label: "Students", icon: Users },
   { id: "trainer-reports", label: "Trainer Reports", icon: MessageSquareText },
-  { id: "weekly-topics", label: "Weekly Topics", icon: CalendarDays },
+  { id: "weekly-topics", label: "Weekly Input", icon: CalendarDays },
   { id: "weekly-reports", label: "Weekly Reports", icon: ClipboardCheck },
   { id: "challenges", label: "Challenges", icon: Trophy },
   { id: "feedback", label: "Feedback", icon: MessageSquareText },
@@ -165,7 +165,7 @@ export function AdminDashboard() {
     { label: "Pending classrooms", value: dashboard.classrooms.filter((item) => item.status === "pending").length, icon: Check },
     { label: "Active students", value: dashboard.students.filter((item) => item.status === "active").length, icon: Users },
     { label: "Trainer reports", value: dashboard.trainerReports.filter((item) => item.status !== "resolved").length, icon: MessageSquareText },
-    { label: "Weekly topics", value: dashboard.weeklyTopics.length, icon: CalendarDays },
+    { label: "Weekly input", value: dashboard.weeklyTopics.length, icon: CalendarDays },
     { label: "Classroom weekly reports", value: dashboard.classroomWeeklyReports.filter((item) => item.status !== "reviewed").length, icon: ClipboardCheck },
     { label: "Universal challenges", value: dashboard.universalChallenges.length, icon: Trophy },
     { label: "Student reflections", value: dashboard.feedback.length, icon: MessageSquareText },
@@ -396,13 +396,13 @@ export function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-[#f5f8fc] text-code-bg">
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-70 flex-col bg-primary p-5 text-primary-foreground shadow-xl transition-transform lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="flex items-center justify-between">
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-70 flex-col overflow-hidden bg-primary p-5 text-primary-foreground shadow-xl transition-transform lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <div className="flex shrink-0 items-center justify-between">
           <div><p className="font-display text-xl font-bold">ePawatech</p><p className="text-xs text-white/70">Administration</p></div>
           <button className="lg:hidden" onClick={() => setMenuOpen(false)}><X /></button>
         </div>
-        <nav className="mt-10 space-y-1">{navigation.map((item) => { const Icon = item.icon; return <button key={item.id} onClick={() => changeView(item.id)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium ${view === item.id ? "bg-white/18" : "hover:bg-white/10"}`}><Icon className="size-4" />{item.label}</button>; })}</nav>
-        <div className="mt-auto border-t border-white/15 pt-4">
+        <nav className="mt-10 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">{navigation.map((item) => { const Icon = item.icon; return <button key={item.id} onClick={() => changeView(item.id)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium ${view === item.id ? "bg-white/18" : "hover:bg-white/10"}`}><Icon className="size-4" />{item.label}</button>; })}</nav>
+        <div className="mt-4 shrink-0 border-t border-white/15 pt-4">
           <p className="truncate text-sm font-semibold">{profile?.full_name || "Administrator"}</p>
           <button onClick={() => void signOut()} className="mt-3 text-sm text-white/75 hover:text-white">Sign out</button>
         </div>
@@ -823,8 +823,38 @@ function WeeklyTopicsView(p: ContentProps) {
   const activeTrainers = p.dashboard.trainers.filter((trainer) => trainer.status === "active");
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <ListCard title="Weekly topics" empty="No weekly topics have been created yet.">
+    <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+      <FormCard className="order-first" title={p.topicEditingId ? "Edit weekly topic" : "Post weekly topic"} onSubmit={p.onTopicSubmit} busy={p.busy} button={p.topicEditingId ? "Update topic" : "Post topic"}>
+        <label className="block text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Topic title
+          <Input value={p.topicTitle} onChange={p.setTopicTitle} placeholder="Example: Introducing loops" />
+        </label>
+        <label className="block text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Week key
+          <Input value={p.topicWeekKey} onChange={p.setTopicWeekKey} placeholder="week-12" />
+        </label>
+        <label className="block text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Opens at
+          <Input type="datetime-local" value={p.topicStartsAt} onChange={p.setTopicStartsAt} />
+        </label>
+        <label className="block text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Due at
+          <Input type="datetime-local" value={p.topicDueAt} onChange={p.setTopicDueAt} />
+        </label>
+        <label className="block text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Instructions for trainers
+          <textarea value={p.topicInstructions} onChange={(event) => p.setTopicInstructions(event.target.value)} maxLength={3000} placeholder="What should every trainer respond to this week?" className="mt-1 min-h-36 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground" />
+        </label>
+        <label className="flex items-center gap-2 text-sm font-semibold">
+          <input type="checkbox" checked={p.topicPublished} onChange={(event) => p.setTopicPublished(event.target.checked)} />
+          Published to trainers
+        </label>
+        {p.topicEditingId && (
+          <button type="button" onClick={p.onCancelTopicEdit} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-slate-700">Cancel edit</button>
+        )}
+      </FormCard>
+
+      <ListCard title="Weekly topics" empty="No weekly topics have been posted yet.">
         {p.dashboard.weeklyTopics.map((topic) => {
           const submissions = p.dashboard.weeklyTopicSubmissions.filter((submission) => submission.weekly_topic_id === topic.id);
           const dueDate = new Date(topic.due_at);
@@ -892,21 +922,6 @@ function WeeklyTopicsView(p: ContentProps) {
           );
         })}
       </ListCard>
-
-      <FormCard title={p.topicEditingId ? "Edit weekly topic" : "Create weekly topic"} onSubmit={p.onTopicSubmit} busy={p.busy} button={p.topicEditingId ? "Update topic" : "Create topic"}>
-        <Input value={p.topicTitle} onChange={p.setTopicTitle} placeholder="Topic title" />
-        <Input value={p.topicWeekKey} onChange={p.setTopicWeekKey} placeholder="Week key, e.g. week-12" />
-        <Input type="datetime-local" value={p.topicStartsAt} onChange={p.setTopicStartsAt} />
-        <Input type="datetime-local" value={p.topicDueAt} onChange={p.setTopicDueAt} />
-        <textarea value={p.topicInstructions} onChange={(event) => p.setTopicInstructions(event.target.value)} maxLength={3000} placeholder="Instructions for trainers" className="min-h-36 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-        <label className="flex items-center gap-2 text-sm font-semibold">
-          <input type="checkbox" checked={p.topicPublished} onChange={(event) => p.setTopicPublished(event.target.checked)} />
-          Published to trainers
-        </label>
-        {p.topicEditingId && (
-          <button type="button" onClick={p.onCancelTopicEdit} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-slate-700">Cancel edit</button>
-        )}
-      </FormCard>
     </div>
   );
 }
@@ -1083,8 +1098,8 @@ function ListCard({ title, empty, children }: { title: string; empty: string; ch
   return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-display text-xl font-bold">{title}</h2><div className="mt-3">{items.length ? children : <p className="py-8 text-center text-sm text-muted-foreground">{empty}</p>}</div></section>;
 }
 
-function FormCard({ title, onSubmit, busy, button, children }: { title: string; onSubmit: (event: FormEvent) => Promise<void>; busy: boolean; button: string; children: React.ReactNode }) {
-  return <form onSubmit={(event) => void onSubmit(event)} className="h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-display text-xl font-bold">{title}</h2><div className="mt-4 space-y-3">{children}</div><button disabled={busy} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"><Plus className="size-4" />{busy ? "Saving..." : button}</button></form>;
+function FormCard({ title, onSubmit, busy, button, children, className = "" }: { title: string; onSubmit: (event: FormEvent) => Promise<void>; busy: boolean; button: string; children: React.ReactNode; className?: string }) {
+  return <form onSubmit={(event) => void onSubmit(event)} className={`h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}><h2 className="font-display text-xl font-bold">{title}</h2><div className="mt-4 space-y-3">{children}</div><button disabled={busy} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"><Plus className="size-4" />{busy ? "Saving..." : button}</button></form>;
 }
 
 function Input({ value, onChange, placeholder, type = "text" }: { value: string; onChange: (value: string) => void; placeholder?: string; type?: string }) {
