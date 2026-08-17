@@ -442,6 +442,9 @@ function SignupForm({ role }: { role: "student" | "trainer" }) {
       return setError(
         "Enter your full name, email, and phone number in international format, for example +254712345678.",
       );
+    if (!student && !certificate) {
+      return setError("Upload your trainer certificate as a PDF before requesting access.");
+    }
     if (!student && certificate) {
       const certificateError = validateTrainerCertificate(certificate);
       if (certificateError) return setError(certificateError);
@@ -537,8 +540,8 @@ function SignupForm({ role }: { role: "student" | "trainer" }) {
       <input
         value={form.name}
         onChange={(event) => update("name", event.target.value)}
-        placeholder="Your name"
-        aria-label="Your name"
+        placeholder="Your Full Name"
+        aria-label="Your Full Name"
         autoComplete="name"
         className={inputClass}
       />
@@ -584,7 +587,7 @@ function SignupForm({ role }: { role: "student" | "trainer" }) {
           />
           <div className="rounded-xl border border-primary/20 bg-card p-3 text-left">
             <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-dashed border-primary/30 px-3 py-3 text-sm font-semibold text-primary hover:bg-secondary/40">
-              <span className="flex items-center gap-2"><FileText size={18} />Upload certificate PDF</span>
+              <span className="flex items-center gap-2"><FileText size={18} />Upload certificate for verification purposes *</span>
               <input
                 type="file"
                 accept="application/pdf,.pdf"
@@ -615,7 +618,7 @@ function SignupForm({ role }: { role: "student" | "trainer" }) {
                 </button>
               </div>
             ) : (
-              <p className="mt-2 text-xs text-muted-foreground">Optional during sign-up. PDF only, up to 5 MB.</p>
+              <p className="mt-2 text-xs text-muted-foreground">Required during sign-up. PDF only, up to 5 MB.</p>
             )}
           </div>
         </>
@@ -636,6 +639,7 @@ function SignupForm({ role }: { role: "student" | "trainer" }) {
       <button
         disabled={
           busy ||
+          (teacher && !certificate) ||
           (student &&
             (usernameStatus === "checking" ||
               usernameStatus === "taken" ||
@@ -664,8 +668,8 @@ export function StudentSignupPage() {
       <AuthCard>
         <Title>Join as a Student!</Title>
         <p className="mt-6 text-sm text-muted-foreground">
-          Use a classroom username instead of an email, then start solving
-          Python challenges and earning badges.
+          Create a username, join a classroom, then start solving
+          challenges and earning badges.
         </p>
         <SignupForm role="student" />
         <AuthLinks teacher />
@@ -682,10 +686,10 @@ export function TeacherSignupPage() {
           <GraduationCap size={30} />
         </div>
         <div className="mt-5">
-          <Title>Join as a Teacher</Title>
+          <Title>Join as a Trainer</Title>
         </div>
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          Create your account and request teacher access. An admin will review
+          Create your account and request adjunct trainer access. An admin will review
           your request.
         </p>
         <SignupForm role="trainer" />

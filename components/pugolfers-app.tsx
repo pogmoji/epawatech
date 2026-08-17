@@ -212,8 +212,8 @@ function Home() {
     },
     {
       icon: Trophy,
-      title: "Coding Challenges",
-      text: "Sharpen your skills with bite-sized coding challenges and practical problem-solving exercises.",
+      title: "AI, Coding & Robotics Challenges",
+      text: "Sharpen your skills with AI, coding & robotics challenges and practical problem-solving exercises.",
       href: "/challenges",
     },
     {
