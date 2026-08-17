@@ -962,11 +962,8 @@ function Overview({
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-display text-lg font-bold">
-                This module&apos;s classroom pulse
+                This classroom&apos;s overall progress
               </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Module 6 · Coding & Arduino Basics
-              </p>
             </div>
             <button
               onClick={() => go("reports")}
