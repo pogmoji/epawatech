@@ -962,7 +962,7 @@ function Overview({
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-display text-lg font-bold">
-                This classroom&apos;s overall progress
+                This Classroom&apos;s Overall Progress
               </h3>
             </div>
             <button
