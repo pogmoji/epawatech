@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
+import { BrandLogo } from "@/components/brand-logo";
 import ProjectShowcase from "@/components/projects/project-showcase";
 import { tracks, type Track } from "@/lib/curriculum";
 import { getMyAttendance, type StudentAttendanceRecord } from "@/lib/api/student/attendance";
@@ -42,7 +43,7 @@ import {
   uploadMyStudentAvatar,
   type StudentProfileDetails,
 } from "@/lib/api/student/profile";
-import { getUniversalChallengeRoadmap, setUniversalChallengeProgress, type ChallengeRoadmapLevel } from "@/lib/api/student/universal-challenges";
+import { getUniversalChallengeRoadmap, setUniversalChallengeProgress, submitUniversalChallenge, type ChallengeRoadmapLevel } from "@/lib/api/student/universal-challenges";
 import { getStudentProgress, type ActivityProgress } from "@/lib/api/student/progress";
 import { getClassroomTypingLeaderboard, getMyTypingAttempts, summarizeTypingAttempts, type TypingAttempt, type TypingSummary } from "@/lib/api/student/typing";
 
@@ -250,10 +251,12 @@ export default function StudentDashboard() {
     <div className="min-h-screen bg-[#f5f8fc] text-code-bg">
       <aside className={`fixed inset-y-0 left-0 z-40 flex w-70 flex-col overflow-hidden bg-primary px-4 py-6 text-primary-foreground shadow-xl transition-transform lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="flex shrink-0 items-center justify-between px-3">
-          <div>
-            <p className="font-display text-xl font-bold">ePawatech</p>
-            <p className="text-xs text-primary-foreground/65">Student workspace</p>
-          </div>
+          <BrandLogo
+            subtitle="Student workspace"
+            logoClassName="h-10 w-10"
+            textClassName="text-xl text-primary-foreground"
+            subtitleClassName="text-primary-foreground/65"
+          />
           <button className="rounded-lg p-2 lg:hidden" onClick={() => setMenuOpen(false)} aria-label="Close menu">
             <X size={19} />
           </button>
@@ -601,6 +604,14 @@ function Assignments({ enrollment, assignments, go }: { enrollment: EnrollmentCo
 function Challenges({ roadmap, error, onChanged }: { roadmap: ChallengeRoadmapLevel[]; error: string; onChanged: () => Promise<void> }) {
   const [busyChallengeId, setBusyChallengeId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const [responses, setResponses] = useState<Record<string, { text: string; url: string; file: File | null }>>({});
+
+  function updateResponse(challengeId: string, patch: Partial<{ text: string; url: string; file: File | null }>) {
+    setResponses((current) => ({
+      ...current,
+      [challengeId]: { ...(current[challengeId] ?? { text: "", url: "", file: null }), ...patch },
+    }));
+  }
 
   async function updateProgress(challengeId: string, status: "in_progress" | "completed") {
     setBusyChallengeId(challengeId);
@@ -613,6 +624,33 @@ function Challenges({ roadmap, error, onChanged }: { roadmap: ChallengeRoadmapLe
     }
     await onChanged();
     setNotice(status === "completed" ? "Challenge completed." : "Challenge started.");
+  }
+
+  async function submitChallenge(challenge: ChallengeRoadmapLevel["challenges"][number]) {
+    const response = responses[challenge.id] ?? { text: "", url: "", file: null };
+    if (challenge.submissionType === "text" || challenge.submissionType === "code") {
+      if (!response.text.trim()) return setNotice("Add your response before submitting.");
+    }
+    if (challenge.submissionType === "link" && !response.url.trim()) return setNotice("Add a link before submitting.");
+    if ((challenge.submissionType === "file" || challenge.submissionType === "image") && !response.file) return setNotice("Choose a file before submitting.");
+    if (response.file && response.file.size > challenge.maxFileSize) return setNotice(`File must be ${Math.round(challenge.maxFileSize / 1024 / 1024)} MB or smaller.`);
+    if (response.file && challenge.allowedFileTypes.length && !challenge.allowedFileTypes.includes(response.file.type)) return setNotice("This file type is not accepted for this challenge.");
+
+    setBusyChallengeId(challenge.id);
+    setNotice("");
+    const result = await submitUniversalChallenge({
+      challengeId: challenge.id,
+      textResponse: response.text,
+      urlResponse: response.url,
+      file: response.file,
+    });
+    setBusyChallengeId(null);
+    if (result.error) {
+      setNotice(result.error);
+      return;
+    }
+    await onChanged();
+    setNotice("Challenge submitted and marked complete.");
   }
 
   return (
@@ -669,12 +707,32 @@ function Challenges({ roadmap, error, onChanged }: { roadmap: ChallengeRoadmapLe
                       </span>
                     </div>
                     {challenge.instructions && <p className="mt-3 whitespace-pre-wrap rounded-lg bg-card p-3 text-sm leading-6 text-muted-foreground">{challenge.instructions}</p>}
+                    <div className="mt-3 rounded-lg border border-border bg-card p-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">
+                        Expected submission: {challenge.submissionType.replace("_", " ")}
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        {challenge.submissionPrompt || submissionHelp(challenge.submissionType)}
+                      </p>
+                      {challenge.submission && (
+                        <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
+                          Submitted · {challenge.submission.status.replace("_", " ")}
+                        </p>
+                      )}
+                    </div>
+                    {!challenge.locked && challenge.status !== "completed" && challenge.submissionType !== "none" && (
+                      <ChallengeSubmissionForm
+                        challenge={challenge}
+                        value={responses[challenge.id] ?? { text: "", url: "", file: null }}
+                        onChange={(patch) => updateResponse(challenge.id, patch)}
+                      />
+                    )}
                     <div className="mt-4 flex flex-wrap gap-2">
                       {challenge.locked ? (
                         <button disabled className="rounded-xl border border-border px-4 py-2 text-sm font-bold text-muted-foreground">Locked</button>
                       ) : challenge.status === "completed" ? (
                         <button disabled className="rounded-xl bg-green-100 px-4 py-2 text-sm font-bold text-green-800">Completed</button>
-                      ) : (
+                      ) : challenge.submissionType === "none" ? (
                         <>
                           <button
                             disabled={busyChallengeId === challenge.id}
@@ -691,6 +749,23 @@ function Challenges({ roadmap, error, onChanged }: { roadmap: ChallengeRoadmapLe
                             Mark complete
                           </button>
                         </>
+                      ) : (
+                        <>
+                          <button
+                            disabled={busyChallengeId === challenge.id}
+                            onClick={() => void updateProgress(challenge.id, "in_progress")}
+                            className="rounded-xl border border-border px-4 py-2 text-sm font-bold text-primary disabled:opacity-60"
+                          >
+                            {challenge.status === "in_progress" ? "Continue" : "Start"}
+                          </button>
+                          <button
+                            disabled={busyChallengeId === challenge.id}
+                            onClick={() => void submitChallenge(challenge)}
+                            className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-60"
+                          >
+                            Submit challenge
+                          </button>
+                        </>
                       )}
                     </div>
                   </article>
@@ -703,6 +778,64 @@ function Challenges({ roadmap, error, onChanged }: { roadmap: ChallengeRoadmapLe
         })}
       </div>
     </div>
+  );
+}
+
+function submissionHelp(type: ChallengeRoadmapLevel["challenges"][number]["submissionType"]) {
+  switch (type) {
+    case "none":
+      return "No evidence is required for this challenge.";
+    case "link":
+      return "Submit a link to your work.";
+    case "file":
+      return "Upload the file requested by your admin.";
+    case "image":
+      return "Upload a screenshot, photo, or image of your work.";
+    case "code":
+      return "Paste the code you wrote for this challenge.";
+    case "text":
+      return "Write your answer or explanation.";
+  }
+}
+
+function ChallengeSubmissionForm({
+  challenge,
+  value,
+  onChange,
+}: {
+  challenge: ChallengeRoadmapLevel["challenges"][number];
+  value: { text: string; url: string; file: File | null };
+  onChange: (patch: Partial<{ text: string; url: string; file: File | null }>) => void;
+}) {
+  if (challenge.submissionType === "link") {
+    return (
+      <label className="mt-3 block text-sm font-bold">
+        Submission link
+        <input value={value.url} onChange={(event) => onChange({ url: event.target.value })} className="mt-2 w-full rounded-xl border border-input px-3 py-2.5 font-normal" placeholder="https://..." />
+      </label>
+    );
+  }
+  if (challenge.submissionType === "file" || challenge.submissionType === "image") {
+    return (
+      <label className="mt-3 block text-sm font-bold">
+        Upload evidence
+        <input
+          type="file"
+          accept={challenge.allowedFileTypes.join(",")}
+          onChange={(event) => onChange({ file: event.target.files?.[0] ?? null })}
+          className="mt-2 w-full rounded-xl border border-input px-3 py-2.5 font-normal"
+        />
+        <span className="mt-1 block text-xs font-normal text-muted-foreground">
+          {challenge.allowedFileTypes.length ? challenge.allowedFileTypes.join(", ") : "Any file type"} · Max {Math.round(challenge.maxFileSize / 1024 / 1024)} MB
+        </span>
+      </label>
+    );
+  }
+  return (
+    <label className="mt-3 block text-sm font-bold">
+      {challenge.submissionType === "code" ? "Code response" : "Written response"}
+      <textarea value={value.text} onChange={(event) => onChange({ text: event.target.value })} className="mt-2 min-h-32 w-full rounded-xl border border-input px-3 py-2.5 font-mono text-sm font-normal" />
+    </label>
   );
 }
 

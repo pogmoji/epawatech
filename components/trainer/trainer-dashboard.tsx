@@ -37,7 +37,8 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { tracks, type LessonActivity } from "@/lib/curriculum";
+import { tracks, type DragDropItem, type DragDropZone, type LessonActivity } from "@/lib/curriculum";
+import { getMasterTracks } from "@/lib/api/curriculum/master";
 import Quiz from "@/components/learn/quiz";
 import DragDrop, { DragClassify } from "@/components/learn/drag-drop";
 import { KeyboardLesson, TypingTest } from "@/components/learn/typing-test";
@@ -49,6 +50,7 @@ import { ExternalLink } from "@/components/learn/external-link";
 import { AiChat } from "@/components/learn/ai-chat";
 import { WokwiEmbed, YouTubeEmbed } from "@/components/learn/external-embeds";
 import { useAuth } from "@/components/auth-provider";
+import { BrandLogo } from "@/components/brand-logo";
 import {
   getTrainerClassroomContext,
   rotateClassroomJoinCode,
@@ -57,7 +59,7 @@ import {
 } from "@/lib/api/trainer/classrooms";
 import { getTrainerClassroomStudents, type StudentSummary } from "@/lib/api/trainer/students";
 import { getAttendance, getAttendanceSessions, recordAttendance, type AttendanceRecord, type AttendanceSessionSummary } from "@/lib/api/trainer/attendance";
-import { getClassroomCurriculum, saveClassroomCurriculum, type ClassroomCurriculumData, type CurriculumSaveItem } from "@/lib/api/trainer/curriculum";
+import { CURRICULUM_ASSET_MAX_BYTES, CURRICULUM_ASSET_TYPES, getClassroomCurriculum, resetClassroomCurriculum, saveClassroomCurriculum, uploadCurriculumAsset, type ClassroomCurriculumData, type CurriculumSaveItem } from "@/lib/api/trainer/curriculum";
 import { createWeeklyComment, getStudentWeeklyComments, updateWeeklyComment, type WeeklyComment } from "@/lib/api/trainer/comments";
 import { getStudentFeedbackForTrainer, type TrainerStudentFeedback } from "@/lib/api/trainer/feedback";
 import { createHardwareSession, getHardwareEvidence, getHardwareSessions, updateHardwareSession, uploadHardwareEvidence, type HardwareEvidence, type HardwareSession } from "@/lib/api/trainer/hardware";
@@ -89,6 +91,8 @@ type CurriculumItem = {
   removed?: boolean;
   isUnlocked?: boolean;
   masterTitle?: string;
+  masterVersion?: number;
+  basedOnMasterVersion?: number | null;
   masterKind?: string;
   instruction?: string;
   masterInstruction?: string;
@@ -104,7 +108,7 @@ type Module = {
   items: CurriculumItem[];
 };
 
-const activityLabels: Record<LessonActivity["type"], string> = {
+export const activityLabels: Record<LessonActivity["type"], string> = {
   quiz: "Quiz",
   "drag-label": "Interactive activity",
   "drag-classify": "Interactive activity",
@@ -120,14 +124,14 @@ const activityLabels: Record<LessonActivity["type"], string> = {
   "scenario-question": "Scenario question",
   "external-link": "Resource",
 };
-function activityInstruction(activity: LessonActivity) {
+export function activityInstruction(activity: LessonActivity) {
   if ("instruction" in activity) return activity.instruction;
   if ("mission" in activity) return activity.mission;
   if ("scenario" in activity) return activity.scenario;
   return "Use this supported platform activity in your classroom.";
 }
 
-function defaultActivity(type: LessonActivity["type"]): LessonActivity {
+export function defaultActivity(type: LessonActivity["type"]): LessonActivity {
   switch (type) {
     case "quiz":
       return {
@@ -160,8 +164,8 @@ function defaultActivity(type: LessonActivity["type"]): LessonActivity {
   }
 }
 
-function initialModules(): Module[] {
-  return tracks.map((track) => ({
+function modulesFromTracks(sourceTracks = tracks): Module[] {
+  return sourceTracks.map((track) => ({
     id: track.slug,
     title: track.title,
     week: track.weekNumber,
@@ -172,6 +176,7 @@ function initialModules(): Module[] {
         kind: activityLabels[lesson.activity.type],
         origin: "core" as const,
         masterTitle: lesson.title,
+        masterVersion: 1,
         masterKind: activityLabels[lesson.activity.type],
         instruction: activityInstruction(lesson.activity),
         masterInstruction: activityInstruction(lesson.activity),
@@ -187,6 +192,7 @@ function initialModules(): Module[] {
             origin: "core" as const,
             isChallenge: true,
             masterTitle: track.challenge.title,
+            masterVersion: 1,
             masterKind: activityLabels[track.challenge.activity.type],
             instruction: activityInstruction(track.challenge.activity),
             masterInstruction: activityInstruction(track.challenge.activity),
@@ -199,8 +205,13 @@ function initialModules(): Module[] {
   }));
 }
 
+function initialModules(): Module[] {
+  return modulesFromTracks();
+}
+
 function applyClassroomCurriculum(modules: Module[], data: ClassroomCurriculumData) {
   const routeByActivityId = new Map(data.masterActivities.map((activity) => [activity.id, activity.route]));
+  const versionByRoute = new Map(data.masterActivities.map((activity) => [activity.route, activity.version]));
   const overrideByRoute = new Map(
     data.overrides.flatMap((override) => {
       const route = routeByActivityId.get(override.master_activity_id);
@@ -211,11 +222,23 @@ function applyClassroomCurriculum(modules: Module[], data: ClassroomCurriculumDa
     const items = module.items.map((item, itemIndex) => {
       const lessonSlug = item.id.startsWith(`${module.id}-`) ? item.id.slice(module.id.length + 1) : "";
       const override = overrideByRoute.get(`${module.id}/${lessonSlug}`);
-      if (!override) return { item, order: moduleIndex * 100 + itemIndex };
+      const currentMasterVersion = versionByRoute.get(`${module.id}/${lessonSlug}`) ?? item.masterVersion ?? 1;
+      if (!override) {
+        return {
+          item: {
+            ...item,
+            masterVersion: currentMasterVersion,
+            basedOnMasterVersion: null,
+          },
+          order: moduleIndex * 100 + itemIndex,
+        };
+      }
       return {
         item: {
           ...item,
           title: override.title_override ?? item.title,
+          masterVersion: currentMasterVersion,
+          basedOnMasterVersion: override.based_on_master_version,
           activity: override.configuration_override ?? item.activity,
           instruction: override.configuration_override ? activityInstruction(override.configuration_override) : item.instruction,
           removed: override.removed,
@@ -264,8 +287,23 @@ function flattenCurriculumForSave(modules: Module[]): CurriculumSaveItem[] {
       removed: item.removed,
       isUnlocked: item.isUnlocked !== false,
       masterTitle: item.masterTitle,
+      masterVersion: item.masterVersion,
+      basedOnMasterVersion: item.basedOnMasterVersion,
+      masterActivity: item.masterActivity,
       activity: item.activity,
     })),
+  );
+}
+
+function isCoreItemCustomized(item: CurriculumItem) {
+  return (
+    item.origin === "core" &&
+    !!item.masterTitle &&
+    (item.title !== item.masterTitle ||
+      item.kind !== item.masterKind ||
+      item.instruction !== item.masterInstruction ||
+      !!item.resourceNote ||
+      (!!item.masterActivity && JSON.stringify(item.activity) !== JSON.stringify(item.masterActivity)))
   );
 }
 
@@ -354,7 +392,8 @@ export default function TrainerDashboard() {
     }
 
     const today = new Date().toISOString().split("T")[0];
-    const [curRes, studRes, attRes, attHistoryRes, hardwareRes, typingRes] = await Promise.all([
+    const [masterTracks, curRes, studRes, attRes, attHistoryRes, hardwareRes, typingRes] = await Promise.all([
+      getMasterTracks(),
       getClassroomCurriculum(activeClassroomId),
       getTrainerClassroomStudents(activeClassroomId),
       getAttendance(activeClassroomId, today),
@@ -363,7 +402,7 @@ export default function TrainerDashboard() {
       getTrainerClassroomTypingSummary(activeClassroomId),
     ]);
 
-    if (curRes.data) setModules(applyClassroomCurriculum(initialModules(), curRes.data));
+    if (curRes.data) setModules(applyClassroomCurriculum(modulesFromTracks(masterTracks), curRes.data));
     if (studRes.data) setStudentsList(studRes.data);
     if (attRes.data) setAttendance(Object.fromEntries(attRes.data.map((item) => [item.studentId, item.status])));
     if (attHistoryRes.data) setAttendanceSessions(attHistoryRes.data);
@@ -511,12 +550,12 @@ export default function TrainerDashboard() {
         className={`fixed inset-y-0 left-0 z-40 flex w-70 flex-col overflow-hidden bg-primary px-4 py-6 text-primary-foreground shadow-xl transition-transform lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
         <div className="flex shrink-0 items-center justify-between px-3">
-          <div>
-            <p className="font-display text-xl font-bold">ePawatech</p>
-            <p className="text-xs text-primary-foreground/65">
-              Trainer workspace
-            </p>
-          </div>
+          <BrandLogo
+            subtitle="Trainer workspace"
+            logoClassName="h-10 w-10"
+            textClassName="text-xl text-primary-foreground"
+            subtitleClassName="text-primary-foreground/65"
+          />
           <button
             className="rounded-lg p-2 lg:hidden"
             onClick={() => setMenuOpen(false)}
@@ -1129,6 +1168,25 @@ function Curriculum({
     return !result.error;
   }
 
+  async function restoreLatestMaster() {
+    const reset = await resetClassroomCurriculum(classroomId);
+    if (reset.error) {
+      notify(reset.error);
+      return;
+    }
+
+    const [masterTracks, currentCurriculum] = await Promise.all([
+      getMasterTracks(),
+      getClassroomCurriculum(classroomId),
+    ]);
+    if (currentCurriculum.data) {
+      setModules(applyClassroomCurriculum(modulesFromTracks(masterTracks), currentCurriculum.data));
+    } else {
+      setModules(modulesFromTracks(masterTracks));
+    }
+    notify(`${classroomName} restored to the latest master curriculum.`);
+  }
+
   const persistModules = async (nextModules: Module[]) => {
     setModules(nextModules);
     return saveChanges(nextModules);
@@ -1402,13 +1460,14 @@ function Curriculum({
                     </div>
                   </div>
                   {module.items.map((item, index) => {
-                    const customized =
+                    const customized = isCoreItemCustomized(item);
+                    const masterUpdated =
                       item.origin === "core" &&
-                      !!item.masterTitle &&
-                      (item.title !== item.masterTitle ||
-                        item.kind !== item.masterKind ||
-                        item.instruction !== item.masterInstruction ||
-                        !!item.resourceNote);
+                      customized &&
+                      item.basedOnMasterVersion !== null &&
+                      item.basedOnMasterVersion !== undefined &&
+                      item.masterVersion !== undefined &&
+                      item.basedOnMasterVersion < item.masterVersion;
                     return (
                       <div
                         key={item.id}
@@ -1442,6 +1501,11 @@ function Curriculum({
                                 ? "CUSTOMIZED"
                                 : "CORE"}
                         </span>
+                        {masterUpdated && (
+                          <span className="rounded-full bg-orange-100 px-2 py-1 text-[10px] font-bold text-orange-800">
+                            MASTER UPDATED
+                          </span>
+                        )}
                         {item.isChallenge && (
                           <span className="rounded-full bg-accent/15 px-2 py-1 text-[10px] font-bold text-accent-foreground">
                             END-OF-MODULE CHALLENGE
@@ -1454,6 +1518,11 @@ function Curriculum({
                           {item.isUnlocked === false ? "LOCKED" : "UNLOCKED"}
                         </span>
                         <div className="flex flex-wrap gap-1">
+                          {masterUpdated && (
+                            <p className="basis-full rounded-lg bg-orange-50 px-3 py-2 text-xs leading-5 text-orange-900">
+                              Admin updated the master after this classroom customization. Students still see your customized version until you edit it or restore master.
+                            </p>
+                          )}
                           <MiniButton
                             label="Move earlier"
                             onClick={() => void moveItem(module.id, index, -1)}
@@ -1540,12 +1609,12 @@ function Curriculum({
       )}{" "}
       {confirmRestore && (
         <Confirm
-          title="Restore master order?"
-          text={`This resets the ${classroomName} configuration and removes trainer-added items. The platform master curriculum remains unchanged.`}
-          action={`Restore ${classroomName} default`}
+          title="Restore latest master?"
+          text={`This removes ${classroomName} overrides and trainer-added items, then reloads the latest admin master curriculum. The platform master itself is unchanged.`}
+          action={`Restore latest master`}
           onCancel={() => setConfirmRestore(false)}
           onConfirm={() => {
-            void persistModules(initialModules());
+            void restoreLatestMaster();
             setConfirmRestore(false);
           }}
         />
@@ -1590,6 +1659,12 @@ function EditLessonModal({
   );
   const [resourceNote, setResourceNote] = useState(item.resourceNote || "");
   const [saving, setSaving] = useState(false);
+  const masterUpdated =
+    item.origin === "core" &&
+    item.basedOnMasterVersion !== null &&
+    item.basedOnMasterVersion !== undefined &&
+    item.masterVersion !== undefined &&
+    item.basedOnMasterVersion < item.masterVersion;
   const setType = (type: LessonActivity["type"]) =>
     setActivity(defaultActivity(type));
   return (
@@ -1646,11 +1721,16 @@ function EditLessonModal({
       </label>
       {item.masterTitle && (
         <div className="mt-5 rounded-xl border border-border bg-muted/60 p-3 text-sm">
-          <p className="font-bold">Master reference · read-only</p>
+          <p className="font-bold">Current master reference · read-only</p>
           <p className="mt-1">
             <b>{item.masterTitle}</b> · {item.masterKind}
           </p>
           <p className="mt-1 text-muted-foreground">{item.masterInstruction}</p>
+          {masterUpdated && (
+            <p className="mt-3 rounded-lg bg-orange-50 px-3 py-2 text-xs font-semibold leading-5 text-orange-900">
+              This classroom version was based on master v{item.basedOnMasterVersion}; Admin has now published master v{item.masterVersion}. Saving keeps your classroom customization, while Restore master adopts the latest master version.
+            </p>
+          )}
         </div>
       )}
       <div className="mt-6 flex justify-end gap-2">
@@ -1681,7 +1761,7 @@ function EditLessonModal({
     </Modal>
   );
 }
-function ActivityEditor({
+export function ActivityEditor({
   activity,
   onChange,
 }: {
@@ -1880,66 +1960,169 @@ function DragActivityEditor({
   onChange: (activity: LessonActivity) => void;
   setInstruction: (value: string) => void;
 }) {
-  const [itemsText, setItemsText] = useState(() =>
-    activity.items.map((item) => item.label).join(", "),
-  );
-  const [zonesText, setZonesText] = useState(() =>
-    activity.zones.map((zone) => zone.label).join(", "),
-  );
-  const saveItems = (value: string) => {
-    setItemsText(value);
-    onChange({
-      ...activity,
-      items: value
-        .split(",")
-        .map((label, index) => ({
-          id: `item-${index}`,
-          label: label.trim(),
-          zone: activity.zones[0]?.id || "zone-0",
-        }))
-        .filter((item) => item.label),
+  const [uploadingKey, setUploadingKey] = useState("");
+  const [uploadError, setUploadError] = useState("");
+  const firstZoneId = activity.zones[0]?.id || "zone-0";
+  const updateActivity = (next: Partial<typeof activity>) => onChange({ ...activity, ...next });
+  const updateItem = (id: string, patch: Partial<DragDropItem>) => {
+    updateActivity({ items: activity.items.map((item) => (item.id === id ? { ...item, ...patch } : item)) });
+  };
+  const updateZone = (id: string, patch: Partial<DragDropZone>) => {
+    const nextZones = activity.zones.map((zone) => (zone.id === id ? { ...zone, ...patch } : zone));
+    updateActivity({
+      zones: nextZones,
+      items: activity.items.map((item) => item.zone === id && patch.id ? { ...item, zone: patch.id } : item),
     });
   };
-  const saveZones = (value: string) => {
-    setZonesText(value);
-    onChange({
-      ...activity,
-      zones: value
-        .split(",")
-        .map((label, index) => ({ id: `zone-${index}`, label: label.trim() }))
-        .filter((zone) => zone.label),
+  const addItem = () => {
+    updateActivity({
+      items: [
+        ...activity.items,
+        { id: `item-${Date.now()}`, label: "New item", zone: firstZoneId },
+      ],
     });
+  };
+  const addZone = () => {
+    updateActivity({
+      zones: [
+        ...activity.zones,
+        { id: `zone-${Date.now()}`, label: "New target" },
+      ],
+    });
+  };
+  const removeItem = (id: string) => updateActivity({ items: activity.items.filter((item) => item.id !== id) });
+  const removeZone = (id: string) => {
+    const remaining = activity.zones.filter((zone) => zone.id !== id);
+    const fallbackZoneId = remaining[0]?.id || "zone-0";
+    updateActivity({
+      zones: remaining,
+      items: activity.items.map((item) => item.zone === id ? { ...item, zone: fallbackZoneId } : item),
+    });
+  };
+  const uploadImage = async (file: File, key: string, applyUrl: (url: string) => void) => {
+    if (!CURRICULUM_ASSET_TYPES.includes(file.type)) {
+      setUploadError("Upload a JPG, PNG, WebP, or SVG image.");
+      return;
+    }
+    if (file.size > CURRICULUM_ASSET_MAX_BYTES) {
+      setUploadError("Image must be 2 MB or smaller.");
+      return;
+    }
+    const localPreview = URL.createObjectURL(file);
+    applyUrl(localPreview);
+    setUploadingKey(key);
+    setUploadError("");
+    const result = await uploadCurriculumAsset(file);
+    setUploadingKey("");
+    URL.revokeObjectURL(localPreview);
+    if (result.error || !result.data) {
+      setUploadError(result.error || "Image upload failed.");
+      return;
+    }
+    applyUrl(result.data.publicUrl);
   };
   return (
     <div className="mt-4">
       <Instruction value={activity.instruction} onChange={setInstruction} />
       <p className="mt-3 text-xs leading-5 text-muted-foreground">
-        Items and target zones remain the supported interactive building blocks.
-        You can type naturally, including spaces and a trailing comma while
-        adding the next entry.
+        Add optional images to the draggable items or the target zones. Images are uploaded to the Supabase
+        <span className="font-semibold text-foreground"> curriculum-assets</span> bucket and saved into the lesson configuration as image URLs.
       </p>
-      <label className="mt-3 block text-sm font-bold">
-        Item labels{" "}
-        <span className="font-normal text-muted-foreground">
-          (comma-separated)
-        </span>
+      {uploadError && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{uploadError}</p>}
+
+      <div className="mt-4 rounded-xl border border-border bg-muted/30 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-sm font-bold">Target zones</h4>
+          <button type="button" onClick={addZone} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-bold text-primary">Add zone</button>
+        </div>
+        <div className="mt-3 grid gap-3">
+          {activity.zones.map((zone) => (
+            <div key={zone.id} className="rounded-xl border border-border bg-card p-3">
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_150px]">
+                <div className="grid gap-2">
+                  <input value={zone.label} onChange={(event) => updateZone(zone.id, { label: event.target.value })} placeholder="Zone label" className="rounded-lg border border-input px-3 py-2 text-sm" />
+                  <input value={zone.imageAlt || ""} onChange={(event) => updateZone(zone.id, { imageAlt: event.target.value })} placeholder="Image description" className="rounded-lg border border-input px-3 py-2 text-sm" />
+                </div>
+                <ImageUploadPreview
+                  label="Zone image"
+                  imageUrl={zone.imageUrl}
+                  uploading={uploadingKey === `zone-${zone.id}`}
+                  onRemove={() => updateZone(zone.id, { imageUrl: undefined, imageAlt: undefined })}
+                  onFile={(file) => void uploadImage(file, `zone-${zone.id}`, (url) => updateZone(zone.id, { imageUrl: url, imageAlt: zone.imageAlt || zone.label }))}
+                />
+              </div>
+              {activity.zones.length > 1 && <button type="button" onClick={() => removeZone(zone.id)} className="mt-2 text-xs font-bold text-rose-700">Remove zone</button>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-border bg-muted/30 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-sm font-bold">Draggable items</h4>
+          <button type="button" onClick={addItem} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-bold text-primary">Add item</button>
+        </div>
+        <div className="mt-3 grid gap-3">
+          {activity.items.map((item) => (
+            <div key={item.id} className="rounded-xl border border-border bg-card p-3">
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_150px]">
+                <div className="grid gap-2">
+                  <input value={item.label} onChange={(event) => updateItem(item.id, { label: event.target.value })} placeholder="Item label" className="rounded-lg border border-input px-3 py-2 text-sm" />
+                  <select value={item.zone} onChange={(event) => updateItem(item.id, { zone: event.target.value })} className="rounded-lg border border-input px-3 py-2 text-sm">
+                    {activity.zones.map((zone) => <option key={zone.id} value={zone.id}>{zone.label || zone.id}</option>)}
+                  </select>
+                  <input value={item.imageAlt || ""} onChange={(event) => updateItem(item.id, { imageAlt: event.target.value })} placeholder="Image description" className="rounded-lg border border-input px-3 py-2 text-sm" />
+                </div>
+                <ImageUploadPreview
+                  label="Item image"
+                  imageUrl={item.imageUrl}
+                  uploading={uploadingKey === `item-${item.id}`}
+                  onRemove={() => updateItem(item.id, { imageUrl: undefined, imageAlt: undefined })}
+                  onFile={(file) => void uploadImage(file, `item-${item.id}`, (url) => updateItem(item.id, { imageUrl: url, imageAlt: item.imageAlt || item.label }))}
+                />
+              </div>
+              <button type="button" onClick={() => removeItem(item.id)} className="mt-2 text-xs font-bold text-rose-700">Remove item</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImageUploadPreview({
+  label,
+  imageUrl,
+  uploading,
+  onFile,
+  onRemove,
+}: {
+  label: string;
+  imageUrl?: string;
+  uploading: boolean;
+  onFile: (file: File) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-2">
+      <div className="flex h-24 items-center justify-center overflow-hidden rounded-lg bg-white">
+        {imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-contain" /> : <span className="px-2 text-center text-xs text-muted-foreground">No image</span>}
+      </div>
+      <label className="mt-2 block cursor-pointer rounded-lg bg-primary px-2 py-1.5 text-center text-xs font-bold text-primary-foreground">
+        {uploading ? "Uploading..." : label}
         <input
-          value={itemsText}
-          onChange={(event) => saveItems(event.target.value)}
-          className="mt-2 w-full rounded-xl border border-input px-3 py-2.5 font-normal"
+          type="file"
+          accept={CURRICULUM_ASSET_TYPES.join(",")}
+          disabled={uploading}
+          className="sr-only"
+          onChange={(event) => {
+            const file = event.target.files?.[0] ?? null;
+            event.currentTarget.value = "";
+            if (file) onFile(file);
+          }}
         />
       </label>
-      <label className="mt-3 block text-sm font-bold">
-        Target zones{" "}
-        <span className="font-normal text-muted-foreground">
-          (comma-separated)
-        </span>
-        <input
-          value={zonesText}
-          onChange={(event) => saveZones(event.target.value)}
-          className="mt-2 w-full rounded-xl border border-input px-3 py-2.5 font-normal"
-        />
-      </label>
+      {imageUrl && <button type="button" onClick={onRemove} className="mt-1 w-full text-xs font-bold text-rose-700">Remove image</button>}
     </div>
   );
 }
@@ -2182,7 +2365,7 @@ function LessonPlayground({
     </Modal>
   );
 }
-function ActivityPlayground({
+export function ActivityPlayground({
   activity,
   onResult,
 }: {

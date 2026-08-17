@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import type { ChallengeSubmissionType } from "@/lib/api/student/universal-challenges";
 
 export type AdminResult<T> = { data: T; error: null } | { data: null; error: string };
 
@@ -24,7 +25,7 @@ export type TrainerAssignment = { id: string; trainer_id: string; classroom_id: 
 export type StudentEnrollment = { id: string; student_id: string; classroom_id: string; status: string; start_date: string | null; end_date: string | null };
 export type StudentFeedbackRecord = { id: string; student_id: string; classroom_id: string | null; feedback_text: string; created_at: string; updated_at: string };
 export type ChallengeLevelRecord = { id: string; name: string; slug: string; difficulty: "easy" | "medium" | "hard" | "extreme"; sort_order: number; is_active: boolean };
-export type UniversalChallengeRecord = { id: string; level_id: string; title: string; description: string; instructions: string; sort_order: number; is_required: boolean; is_published: boolean; created_by_admin_id: string | null; created_at: string; updated_at: string; completions?: number };
+export type UniversalChallengeRecord = { id: string; level_id: string; title: string; description: string; instructions: string; submission_type: ChallengeSubmissionType; submission_prompt: string; allowed_file_types: string[]; max_file_size: number; sort_order: number; is_required: boolean; is_published: boolean; created_by_admin_id: string | null; created_at: string; updated_at: string; completions?: number };
 export type TrainerAdminReportRecord = {
   id: string;
   trainer_id: string;
@@ -140,7 +141,7 @@ export async function getAdminDashboardData(): Promise<AdminResult<AdminDashboar
     client.from("student_enrollments").select("id, student_id, classroom_id, status, start_date, end_date"),
     client.from("student_feedback").select("id, student_id, classroom_id, feedback_text, created_at, updated_at").order("created_at", { ascending: false }).limit(100),
     client.from("challenge_levels").select("id, name, slug, difficulty, sort_order, is_active").order("sort_order"),
-    client.from("challenges").select("id, level_id, title, description, instructions, sort_order, is_required, is_published, created_by_admin_id, created_at, updated_at").order("sort_order"),
+    client.from("challenges").select("id, level_id, title, description, instructions, submission_type, submission_prompt, allowed_file_types, max_file_size, sort_order, is_required, is_published, created_by_admin_id, created_at, updated_at").order("sort_order"),
     client.from("student_challenge_progress").select("challenge_id, status").eq("status", "completed"),
     client.from("trainer_admin_reports").select("id, trainer_id, trainer_email, classroom_id, category, priority, subject, message, attachment_path, attachment_file_name, attachment_mime_type, attachment_file_size, status, email_notification_status, email_sent_at, created_at, updated_at").order("created_at", { ascending: false }).limit(100),
     client.from("weekly_topics").select("id, title, instructions, week_key, starts_at, due_at, published, created_by_admin_id, created_at, updated_at").order("due_at", { ascending: false }).limit(100),
@@ -312,6 +313,10 @@ export async function createUniversalChallenge(input: {
   title: string;
   description: string;
   instructions: string;
+  submissionType: ChallengeSubmissionType;
+  submissionPrompt: string;
+  allowedFileTypes: string[];
+  maxFileSize: number;
   sortOrder: number;
   isRequired: boolean;
   isPublished: boolean;
@@ -328,12 +333,16 @@ export async function createUniversalChallenge(input: {
       title: input.title.trim(),
       description: input.description.trim(),
       instructions: input.instructions.trim(),
+      submission_type: input.submissionType,
+      submission_prompt: input.submissionPrompt.trim(),
+      allowed_file_types: input.allowedFileTypes,
+      max_file_size: input.maxFileSize,
       sort_order: input.sortOrder,
       is_required: input.isRequired,
       is_published: input.isPublished,
       created_by_admin_id: userData.user.id,
     })
-    .select("id, level_id, title, description, instructions, sort_order, is_required, is_published, created_by_admin_id, created_at, updated_at")
+    .select("id, level_id, title, description, instructions, submission_type, submission_prompt, allowed_file_types, max_file_size, sort_order, is_required, is_published, created_by_admin_id, created_at, updated_at")
     .single();
 
   if (error) return failure(error.message.includes("challenges") ? "Run migration 020 before creating universal challenges." : "Universal challenge could not be created.");
@@ -346,6 +355,10 @@ export async function updateUniversalChallenge(input: {
   title: string;
   description: string;
   instructions: string;
+  submissionType: ChallengeSubmissionType;
+  submissionPrompt: string;
+  allowedFileTypes: string[];
+  maxFileSize: number;
   sortOrder: number;
   isRequired: boolean;
   isPublished: boolean;
@@ -359,12 +372,16 @@ export async function updateUniversalChallenge(input: {
       title: input.title.trim(),
       description: input.description.trim(),
       instructions: input.instructions.trim(),
+      submission_type: input.submissionType,
+      submission_prompt: input.submissionPrompt.trim(),
+      allowed_file_types: input.allowedFileTypes,
+      max_file_size: input.maxFileSize,
       sort_order: input.sortOrder,
       is_required: input.isRequired,
       is_published: input.isPublished,
     })
     .eq("id", input.id)
-    .select("id, level_id, title, description, instructions, sort_order, is_required, is_published, created_by_admin_id, created_at, updated_at")
+    .select("id, level_id, title, description, instructions, submission_type, submission_prompt, allowed_file_types, max_file_size, sort_order, is_required, is_published, created_by_admin_id, created_at, updated_at")
     .single();
 
   if (error) return failure("Universal challenge could not be updated.");

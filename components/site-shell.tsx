@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { LogOut, Menu, X } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
+import { BrandLogo } from "@/components/brand-logo";
 
 const navItems = [
   { label: "Home", href: "/" },
@@ -36,10 +37,14 @@ export function Navbar() {
         <div className="mx-auto flex h-full max-w-370 items-center justify-between px-5 sm:px-10">
           <Link
             href="/"
-            className="font-display text-2xl font-bold tracking-tight"
+            className="shrink-0"
             onClick={() => setOpen(false)}
+            aria-label="ePawatech home"
           >
-            ePawatech
+            <BrandLogo
+              logoClassName="h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11"
+              textClassName="text-xl text-primary-foreground sm:text-2xl"
+            />
           </Link>
           <nav
             className="hidden items-center gap-7 md:flex"

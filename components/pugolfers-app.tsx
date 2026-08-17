@@ -22,7 +22,8 @@ import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Shell } from "./site-shell";
+import { Navbar, Shell } from "./site-shell";
+import { LoginPage } from "@/components/auth-pages";
 import { tracks } from "@/lib/curriculum";
 import { getApprovedProjects } from "@/lib/api/student/projects";
 import { getPublicUniversalChallengeRoadmap, type ChallengeRoadmapLevel } from "@/lib/api/student/universal-challenges";
@@ -561,31 +562,34 @@ function Home() {
 }
 
 function Challenges() {
-  const { user, profile } = useAuth();
+  const { loading: authLoading, user, profile } = useAuth();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [roadmap, setRoadmap] = useState<ChallengeRoadmapLevel[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [challengeLoading, setChallengeLoading] = useState(false);
   const [error, setError] = useState("");
+  const isStudent = Boolean(user && profile?.role === "student");
 
   useEffect(() => {
+    if (authLoading || !isStudent) return;
+
     async function loadChallenges() {
-      setLoading(true);
+      setChallengeLoading(true);
       setError("");
       const result = await getPublicUniversalChallengeRoadmap();
       if (result.error || !result.data) {
         setRoadmap([]);
         setError(result.error || "Failed to load universal challenges.");
-        setLoading(false);
+        setChallengeLoading(false);
         return;
       }
 
       setRoadmap(result.data);
-      setLoading(false);
+      setChallengeLoading(false);
     }
 
     void loadChallenges();
-  }, []);
+  }, [authLoading, isStudent]);
 
   const filtered = useMemo(
     () =>
@@ -601,7 +605,23 @@ function Challenges() {
   );
   const pageSize = 6;
   const pagedChallenges = filtered.slice((page - 1) * pageSize, page * pageSize);
-  const isStudent = user && profile?.role === "student";
+
+  if (authLoading) {
+    return (
+      <Shell>
+        <p className="py-16 text-center text-muted-foreground">Loading challenges...</p>
+      </Shell>
+    );
+  }
+
+  if (!isStudent) {
+    return (
+      <>
+        <Navbar />
+        <LoginPage />
+      </>
+    );
+  }
 
   return (
     <Shell>
@@ -613,22 +633,13 @@ function Challenges() {
         />
         <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50 p-5 text-blue-950 shadow-sm">
           <h3 className="font-display text-xl font-bold">
-            {isStudent ? "Want saved progress?" : "Try now. Save later."}
+            Want saved progress?
           </h3>
           <p className="mt-2 text-sm leading-6 text-blue-900">
-            {isStudent
-              ? "Open your Student Dashboard to save challenge progress and follow the Easy to Extreme unlock path."
-              : "Visitors can read and attempt every published challenge here, but progress is not saved unless you register or sign in as a student."}
+            Open your Student Dashboard to save challenge progress and follow the Easy to Extreme unlock path.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            {isStudent ? (
-              <Link href="/student" className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground">Open Student Dashboard</Link>
-            ) : (
-              <>
-                <Link href="/signup/student" className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground">Register as student</Link>
-                <Link href="/login" className="rounded-xl border border-blue-200 bg-white px-4 py-2 text-sm font-bold text-primary">Sign in</Link>
-              </>
-            )}
+            <Link href="/student" className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground">Open Student Dashboard</Link>
           </div>
         </div>
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
@@ -643,16 +654,16 @@ function Challenges() {
           </label>
         </div>
 
-        {loading && (
+        {challengeLoading && (
           <p className="py-16 text-center text-muted-foreground">Loading challenges...</p>
         )}
 
-        {error && !loading && (
+        {error && !challengeLoading && (
           <p className="py-16 text-center text-muted-foreground">{error}</p>
         )}
 
         <div className="mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {!loading && !error && pagedChallenges.map((challenge, i) => (
+          {!challengeLoading && !error && pagedChallenges.map((challenge, i) => (
             <motion.article
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
@@ -672,28 +683,31 @@ function Challenges() {
                 {challenge.title}
               </h3>
               <p className="mt-2 min-h-12 text-sm leading-6 text-muted-foreground">{challenge.description || "No description yet."}</p>
+              <div className="mt-4 rounded-xl border border-border bg-muted/70 p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">
+                  Expected submission: {challenge.submissionType.replace("_", " ")}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {challenge.submissionPrompt || publicSubmissionHelp(challenge.submissionType)}
+                </p>
+              </div>
               {challenge.instructions && (
-                <p className="mt-4 line-clamp-5 rounded-xl bg-muted p-3 text-sm leading-6 text-muted-foreground">{challenge.instructions}</p>
+                <div className="relative mt-4 overflow-hidden rounded-xl border border-border bg-muted">
+                  <p className="line-clamp-5 p-3 text-sm leading-6 text-muted-foreground">{challenge.instructions}</p>
+                </div>
               )}
               <p className="mt-4 border-t border-border pt-4 text-xs font-semibold text-muted-foreground">
                 Visitor mode: progress is not saved.
               </p>
-              {!isStudent && (
-                <Link href="/signup/student">
-                  <Button primary className="mt-5 w-full py-2">
-                    Register to save progress <ArrowRight size={15} className="ml-1 inline" />
-                  </Button>
-                </Link>
-              )}
             </motion.article>
           ))}
         </div>
-        {!loading && !error && filtered.length === 0 && (
+        {!challengeLoading && !error && filtered.length === 0 && (
           <p className="py-16 text-center text-muted-foreground">
             No published challenges found.
           </p>
         )}
-        {!loading && !error && filtered.length > pageSize && (
+        {!challengeLoading && !error && filtered.length > pageSize && (
         <div className="mt-10 flex items-center justify-center gap-3">
           <button
             onClick={() => setPage(Math.max(1, page - 1))}
@@ -716,6 +730,23 @@ function Challenges() {
       </div>
     </Shell>
   );
+}
+
+function publicSubmissionHelp(type: ChallengeRoadmapLevel["challenges"][number]["submissionType"]) {
+  switch (type) {
+    case "none":
+      return "No upload is required.";
+    case "link":
+      return "Students submit a project or evidence link.";
+    case "file":
+      return "Students upload a file.";
+    case "image":
+      return "Students upload an image or screenshot.";
+    case "code":
+      return "Students submit code.";
+    case "text":
+      return "Students submit a written response.";
+  }
 }
 
 function Projects() {

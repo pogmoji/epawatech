@@ -20,11 +20,15 @@ export type DragDropItem = {
   id: string
   label: string
   zone: string // target zone name
+  imageUrl?: string
+  imageAlt?: string
 }
 
 export type DragDropZone = {
   id: string
   label: string
+  imageUrl?: string
+  imageAlt?: string
 }
 
 export type LessonActivity =
@@ -70,6 +74,19 @@ export type Track = {
   challenge?: Challenge
 }
 
+function deviceImage(label: string, accent: string) {
+  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="28" fill="#f8fafc"/><rect x="34" y="56" width="252" height="118" rx="18" fill="${accent}" opacity=".14"/><rect x="58" y="82" width="204" height="64" rx="10" fill="#ffffff" stroke="${accent}" stroke-width="8"/><text x="160" y="184" text-anchor="middle" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#123246">${label}</text></svg>`)}`
+}
+
+const computerPartImages = {
+  monitor: deviceImage("Monitor", "#047c86"),
+  keyboard: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="28" fill="#f8fafc"/><rect x="42" y="72" width="236" height="86" rx="16" fill="#047c86" opacity=".16"/><rect x="58" y="88" width="204" height="54" rx="10" fill="#ffffff" stroke="#047c86" stroke-width="7"/><g fill="#047c86" opacity=".8">${Array.from({ length: 24 }, (_, index) => `<rect x="${76 + (index % 8) * 21}" y="${101 + Math.floor(index / 8) * 12}" width="13" height="7" rx="2"/>`).join("")}</g><text x="160" y="184" text-anchor="middle" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#123246">Keyboard</text></svg>`)}`,
+  mouse: deviceImage("Mouse", "#f6b13d"),
+  cpu: deviceImage("CPU", "#123246"),
+  printer: deviceImage("Printer", "#047c86"),
+  speakers: deviceImage("Speakers", "#f6b13d"),
+}
+
 // ─── Week 1 — Computer Fundamentals ────────────────────────────────────
 const computerFundamentals: Track = {
   slug: 'computer-fundamentals',
@@ -101,12 +118,12 @@ const computerFundamentals: Track = {
         type: 'drag-label',
         instruction: 'Drag each label to the correct part of the computer.',
         zones: [
-          { id: 'monitor', label: 'Monitor' },
-          { id: 'keyboard', label: 'Keyboard' },
-          { id: 'mouse', label: 'Mouse' },
-          { id: 'cpu', label: 'CPU' },
-          { id: 'printer', label: 'Printer' },
-          { id: 'speakers', label: 'Speakers' },
+          { id: 'monitor', label: 'Monitor', imageUrl: computerPartImages.monitor, imageAlt: 'Computer monitor illustration' },
+          { id: 'keyboard', label: 'Keyboard', imageUrl: computerPartImages.keyboard, imageAlt: 'Computer keyboard illustration' },
+          { id: 'mouse', label: 'Mouse', imageUrl: computerPartImages.mouse, imageAlt: 'Computer mouse illustration' },
+          { id: 'cpu', label: 'CPU', imageUrl: computerPartImages.cpu, imageAlt: 'Computer CPU illustration' },
+          { id: 'printer', label: 'Printer', imageUrl: computerPartImages.printer, imageAlt: 'Computer printer illustration' },
+          { id: 'speakers', label: 'Speakers', imageUrl: computerPartImages.speakers, imageAlt: 'Computer speakers illustration' },
         ],
         items: [
           { id: 'label-monitor', label: 'Monitor', zone: 'monitor' },

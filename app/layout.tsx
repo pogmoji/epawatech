@@ -4,32 +4,41 @@ import { AuthProvider } from "@/components/auth-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ePawatech | Empowering the Next Generation of Tech Innovators",
+  applicationName: "ePawatech",
+  title: {
+    default: "ePawatech | Digital Learning by Pawatech Solutions",
+    template: "%s | ePawatech",
+  },
   description:
-    "ePawatech is your comprehensive learning platform to master coding, build real-world projects, and tackle interactive challenges.",
-  generator: "v0.app",
+    "ePawatech is a Pawatech Solutions learning platform for coding, CBC-aligned digital skills, classroom projects, and interactive technology challenges.",
+  keywords: [
+    "ePawatech",
+    "Pawatech Solutions",
+    "digital learning",
+    "coding education",
+    "CBC digital literacy",
+  ],
   icons: {
     icon: [
       {
-        url: "/icon-light-32x32.png",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/icon-dark-32x32.png",
-        media: "(prefers-color-scheme: dark)",
-      },
-      {
-        url: "/icon.svg",
-        type: "image/svg+xml",
+        url: "/pawatech_logo.png",
+        sizes: "225x225",
+        type: "image/png",
       },
     ],
-    apple: "/apple-icon.png",
+    apple: [
+      {
+        url: "/pawatech_logo.png",
+        sizes: "225x225",
+        type: "image/png",
+      },
+    ],
   },
 };
 
 export const viewport: Viewport = {
   colorScheme: "light",
-  themeColor: "white",
+  themeColor: "#1b2b7c",
 };
 
 export default function RootLayout({

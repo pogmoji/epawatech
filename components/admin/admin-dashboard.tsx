@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Archive, Building2, CalendarDays, Check, ClipboardCheck, ClipboardList, FileText, GraduationCap, LayoutDashboard, Menu, MessageSquareText, Plus, School, Trophy, Users, X } from "lucide-react";
+import { Archive, BookOpen, Building2, CalendarDays, Check, ClipboardCheck, ClipboardList, Eye, FileText, GraduationCap, LayoutDashboard, Menu, MessageSquareText, Plus, School, Trash2, Trophy, Users, X } from "lucide-react";
 import {
   activateClassroom,
   archiveClassroom,
@@ -35,8 +35,14 @@ import {
 import { ProfileCorrections } from "@/components/admin/profile-corrections";
 import { TrainerPasswordReset } from "@/components/admin/trainer-password-reset";
 import { useAuth } from "@/components/auth-provider";
+import { BrandLogo } from "@/components/brand-logo";
+import type { LessonActivity } from "@/lib/curriculum";
+import type { ChallengeSubmissionType } from "@/lib/api/student/universal-challenges";
+import { createMasterLesson, deleteMasterLesson, getAdminMasterCurriculum, updateMasterLesson } from "@/lib/api/admin/master-curriculum";
+import type { MasterCurriculumLesson, MasterCurriculumModule } from "@/lib/api/curriculum/master";
+import { ActivityEditor, ActivityPlayground, activityInstruction, activityLabels, defaultActivity } from "@/components/trainer/trainer-dashboard";
 
-type View = "overview" | "centres" | "cohorts" | "trainers" | "classrooms" | "students" | "trainer-reports" | "weekly-topics" | "weekly-reports" | "challenges" | "feedback" | "activity";
+type View = "overview" | "centres" | "cohorts" | "trainers" | "classrooms" | "students" | "master-curriculum" | "trainer-reports" | "weekly-topics" | "weekly-reports" | "challenges" | "feedback" | "activity";
 type AssignmentRole = "lead" | "co_teacher";
 type ClassroomStatus = "pending" | "active";
 
@@ -54,12 +60,22 @@ const navigation: { id: View; label: string; icon: typeof LayoutDashboard }[] = 
   { id: "trainers", label: "Trainers", icon: GraduationCap },
   { id: "classrooms", label: "Classrooms", icon: ClipboardList },
   { id: "students", label: "Students", icon: Users },
+  { id: "master-curriculum", label: "Master Curriculum", icon: BookOpen },
   { id: "trainer-reports", label: "Trainer Reports", icon: MessageSquareText },
   { id: "weekly-topics", label: "Weekly Input", icon: CalendarDays },
   { id: "weekly-reports", label: "Weekly Reports", icon: ClipboardCheck },
   { id: "challenges", label: "Challenges", icon: Trophy },
   { id: "feedback", label: "Feedback", icon: MessageSquareText },
   { id: "activity", label: "Account tools", icon: Check },
+];
+
+const challengeSubmissionOptions: { value: ChallengeSubmissionType; label: string; help: string }[] = [
+  { value: "text", label: "Written response", help: "Student writes an explanation, answer, or reflection." },
+  { value: "link", label: "Link", help: "Student submits a URL to a project, video, document, or repository." },
+  { value: "file", label: "File upload", help: "Student uploads a document or packaged work file." },
+  { value: "image", label: "Image upload", help: "Student uploads a screenshot, photo, or design image." },
+  { value: "code", label: "Code response", help: "Student pastes code directly into the submission box." },
+  { value: "none", label: "No submission", help: "Student can start and mark complete without evidence." },
 ];
 
 function statusClass(status: string) {
@@ -117,6 +133,10 @@ export function AdminDashboard() {
   const [challengeTitle, setChallengeTitle] = useState("");
   const [challengeDescription, setChallengeDescription] = useState("");
   const [challengeInstructions, setChallengeInstructions] = useState("");
+  const [challengeSubmissionType, setChallengeSubmissionType] = useState<ChallengeSubmissionType>("text");
+  const [challengeSubmissionPrompt, setChallengeSubmissionPrompt] = useState("");
+  const [challengeAllowedFileTypes, setChallengeAllowedFileTypes] = useState("application/pdf,image/png,image/jpeg,image/webp");
+  const [challengeMaxFileSizeMb, setChallengeMaxFileSizeMb] = useState("5");
   const [challengeSortOrder, setChallengeSortOrder] = useState("1");
   const [challengeRequired, setChallengeRequired] = useState(true);
   const [challengePublished, setChallengePublished] = useState(false);
@@ -304,6 +324,10 @@ export function AdminDashboard() {
     setChallengeTitle("");
     setChallengeDescription("");
     setChallengeInstructions("");
+    setChallengeSubmissionType("text");
+    setChallengeSubmissionPrompt("");
+    setChallengeAllowedFileTypes("application/pdf,image/png,image/jpeg,image/webp");
+    setChallengeMaxFileSizeMb("5");
     setChallengeSortOrder("1");
     setChallengeRequired(true);
     setChallengePublished(false);
@@ -364,6 +388,10 @@ export function AdminDashboard() {
     setChallengeTitle(challenge.title);
     setChallengeDescription(challenge.description);
     setChallengeInstructions(challenge.instructions);
+    setChallengeSubmissionType(challenge.submission_type ?? "text");
+    setChallengeSubmissionPrompt(challenge.submission_prompt ?? "");
+    setChallengeAllowedFileTypes((challenge.allowed_file_types ?? []).join(",") || "application/pdf,image/png,image/jpeg,image/webp");
+    setChallengeMaxFileSizeMb(String(Math.max(1, Math.round((challenge.max_file_size ?? 5 * 1024 * 1024) / 1024 / 1024))));
     setChallengeSortOrder(String(challenge.sort_order));
     setChallengeRequired(challenge.is_required);
     setChallengePublished(challenge.is_published);
@@ -378,6 +406,10 @@ export function AdminDashboard() {
       title: challengeTitle,
       description: challengeDescription,
       instructions: challengeInstructions,
+      submissionType: challengeSubmissionType,
+      submissionPrompt: challengeSubmissionPrompt,
+      allowedFileTypes: challengeAllowedFileTypes.split(",").map((item) => item.trim()).filter(Boolean),
+      maxFileSize: Math.min(10, Math.max(1, Number(challengeMaxFileSizeMb) || 5)) * 1024 * 1024,
       sortOrder: Number(challengeSortOrder) || 0,
       isRequired: challengeRequired,
       isPublished: challengePublished,
@@ -398,7 +430,12 @@ export function AdminDashboard() {
     <div className="min-h-screen bg-[#f5f8fc] text-code-bg">
       <aside className={`fixed inset-y-0 left-0 z-40 flex w-70 flex-col overflow-hidden bg-primary p-5 text-primary-foreground shadow-xl transition-transform lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="flex shrink-0 items-center justify-between">
-          <div><p className="font-display text-xl font-bold">ePawatech</p><p className="text-xs text-white/70">Administration</p></div>
+          <BrandLogo
+            subtitle="Administration"
+            logoClassName="h-10 w-10"
+            textClassName="text-xl text-primary-foreground"
+            subtitleClassName="text-white/70"
+          />
           <button className="lg:hidden" onClick={() => setMenuOpen(false)}><X /></button>
         </div>
         <nav className="mt-10 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">{navigation.map((item) => { const Icon = item.icon; return <button key={item.id} onClick={() => changeView(item.id)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium ${view === item.id ? "bg-white/18" : "hover:bg-white/10"}`}><Icon className="size-4" />{item.label}</button>; })}</nav>
@@ -496,6 +533,14 @@ export function AdminDashboard() {
               setChallengeDescription={setChallengeDescription}
               challengeInstructions={challengeInstructions}
               setChallengeInstructions={setChallengeInstructions}
+              challengeSubmissionType={challengeSubmissionType}
+              setChallengeSubmissionType={setChallengeSubmissionType}
+              challengeSubmissionPrompt={challengeSubmissionPrompt}
+              setChallengeSubmissionPrompt={setChallengeSubmissionPrompt}
+              challengeAllowedFileTypes={challengeAllowedFileTypes}
+              setChallengeAllowedFileTypes={setChallengeAllowedFileTypes}
+              challengeMaxFileSizeMb={challengeMaxFileSizeMb}
+              setChallengeMaxFileSizeMb={setChallengeMaxFileSizeMb}
               challengeSortOrder={challengeSortOrder}
               setChallengeSortOrder={setChallengeSortOrder}
               challengeRequired={challengeRequired}
@@ -597,6 +642,14 @@ type ContentProps = {
   setChallengeDescription: (value: string) => void;
   challengeInstructions: string;
   setChallengeInstructions: (value: string) => void;
+  challengeSubmissionType: ChallengeSubmissionType;
+  setChallengeSubmissionType: (value: ChallengeSubmissionType) => void;
+  challengeSubmissionPrompt: string;
+  setChallengeSubmissionPrompt: (value: string) => void;
+  challengeAllowedFileTypes: string;
+  setChallengeAllowedFileTypes: (value: string) => void;
+  challengeMaxFileSizeMb: string;
+  setChallengeMaxFileSizeMb: (value: string) => void;
   challengeSortOrder: string;
   setChallengeSortOrder: (value: string) => void;
   challengeRequired: boolean;
@@ -615,6 +668,7 @@ function DashboardContent(p: ContentProps) {
   if (p.view === "trainers") return <TrainersView {...p} />;
   if (p.view === "classrooms") return <ClassroomsView {...p} />;
   if (p.view === "students") return <StudentsView {...p} />;
+  if (p.view === "master-curriculum") return <MasterCurriculumView />;
   if (p.view === "trainer-reports") return <TrainerReportsView {...p} />;
   if (p.view === "weekly-topics") return <WeeklyTopicsView {...p} />;
   if (p.view === "weekly-reports") return <ClassroomWeeklyReportsView {...p} />;
@@ -761,6 +815,246 @@ function ClassroomsView(p: ContentProps) {
 
 function StudentsView(p: ContentProps) {
   return <ListCard title="Student enrollments" empty="No student accounts found.">{p.dashboard.students.map((student) => { const enrollment = p.dashboard.enrollments.find((item) => item.student_id === student.id && item.status === "active"); const classroom = enrollment ? p.maps.classrooms.get(enrollment.classroom_id) : undefined; const cohort = classroom ? p.maps.cohorts.get(classroom.cohort_id) : undefined; const feedbackCount = p.dashboard.feedback.filter((item) => item.student_id === student.id).length; return <div key={student.id} className="grid gap-2 border-b border-slate-100 py-4 md:grid-cols-4"><div><p className="font-semibold">{student.full_name || student.username || "Unnamed student"}</p><p className="text-sm text-muted-foreground">{student.username || "No username"}</p></div><p className="text-sm text-muted-foreground">{classroom?.name || "Not actively enrolled"}</p><p className="text-sm text-muted-foreground">{cohort ? p.maps.centres.get(cohort.centre_id)?.name || "Unknown centre" : "-"}</p><div className="flex items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{feedbackCount} reflection{feedbackCount === 1 ? "" : "s"}</p><Status value={student.status} /></div></div>; })}</ListCard>;
+}
+
+function MasterCurriculumView() {
+  const [modules, setModules] = useState<MasterCurriculumModule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [editing, setEditing] = useState<{ module: MasterCurriculumModule; lesson: MasterCurriculumLesson | null } | null>(null);
+  const [viewing, setViewing] = useState<MasterCurriculumLesson | null>(null);
+
+  const loadMaster = useCallback(async () => {
+    setLoading(true);
+    const result = await getAdminMasterCurriculum();
+    setLoading(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setModules(result.data ?? []);
+    setError("");
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadMaster(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadMaster]);
+
+  async function removeLesson(lesson: MasterCurriculumLesson) {
+    const result = await deleteMasterLesson(lesson.id);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setNotice("Master lesson removed.");
+    await loadMaster();
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="font-display text-xl font-bold">Master curriculum</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+            These changes update the platform master lessons. Trainers still keep classroom-level overrides, but new master reads use these records.
+          </p>
+        </div>
+      </div>
+      {notice && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{notice}</p>}
+      {error && <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">{error}</p>}
+      {loading ? (
+        <div className="grid gap-4 md:grid-cols-2">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-40 animate-pulse rounded-2xl bg-slate-200" />)}</div>
+      ) : (
+        <div className="space-y-4">
+          {modules.map((module) => (
+            <section key={module.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-primary">Week {module.week.week_number}</p>
+                  <h3 className="mt-1 font-display text-xl font-bold">{module.title}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{module.description || module.week.description || "No description"}</p>
+                </div>
+                <button onClick={() => setEditing({ module, lesson: null })} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-white">
+                  <Plus className="size-4" />Add lesson
+                </button>
+              </div>
+              <div className="mt-4 grid gap-3">
+                {module.lessons.map((lesson) => (
+                  <article key={lesson.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold">{lesson.title}</p>
+                          <Status value={lesson.is_challenge ? "challenge" : lesson.activity.type} />
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {lesson.slug} · Sort {lesson.sort_order} · {lesson.topics.length ? lesson.topics.join(", ") : "No topics"}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => setViewing(lesson)} className="inline-flex items-center gap-1 rounded-lg border border-border bg-white px-3 py-2 text-xs font-bold text-slate-700">
+                          <Eye className="size-3" />View
+                        </button>
+                        <button onClick={() => setEditing({ module, lesson })} className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-bold text-primary">Edit</button>
+                        <button onClick={() => void removeLesson(lesson)} className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-700">
+                          <Trash2 className="size-3" />Remove
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+      {editing && (
+        <MasterLessonModal
+          module={editing.module}
+          lesson={editing.lesson}
+          onClose={() => setEditing(null)}
+          onSaved={async (message) => {
+            setEditing(null);
+            setNotice(message);
+            await loadMaster();
+          }}
+          onError={setError}
+        />
+      )}
+      {viewing && <MasterLessonPreviewModal lesson={viewing} onClose={() => setViewing(null)} />}
+    </div>
+  );
+}
+
+function MasterLessonPreviewModal({ lesson, onClose }: { lesson: MasterCurriculumLesson; onClose: () => void }) {
+  const [result, setResult] = useState("");
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
+      <section className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-primary">
+              Master lesson preview
+            </p>
+            <h3 className="mt-1 font-display text-xl font-bold">{lesson.title}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {activityLabels[lesson.activity.type]} · {lesson.slug}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-lg border border-border p-2" aria-label="Close preview">
+            <X className="size-4" />
+          </button>
+        </div>
+        <p className="mt-4 rounded-xl bg-violet-50 p-3 text-sm leading-6 text-violet-900">
+          <b>Admin preview.</b> Nothing entered here is stored, shared with students, or sent to the database.
+        </p>
+        <p className="mt-5 text-sm font-bold">{activityLabels[lesson.activity.type]}</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          {activityInstruction(lesson.activity)}
+        </p>
+        <ActivityPlayground activity={lesson.activity} onResult={setResult} />
+        {result && (
+          <p className="mt-3 rounded-lg bg-green-50 p-3 text-sm font-semibold text-green-800">
+            {result}
+          </p>
+        )}
+        <div className="mt-6 flex justify-end">
+          <button onClick={onClose} className="rounded-xl px-4 py-2.5 text-sm font-bold">
+            Close preview
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function MasterLessonModal({
+  module,
+  lesson,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  module: MasterCurriculumModule;
+  lesson: MasterCurriculumLesson | null;
+  onClose: () => void;
+  onSaved: (message: string) => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [slug, setSlug] = useState(lesson?.slug ?? `lesson-${module.lessons.length + 1}`);
+  const [title, setTitle] = useState(lesson?.title ?? "");
+  const [topicsText, setTopicsText] = useState((lesson?.topics ?? []).join(", "));
+  const [sortOrder, setSortOrder] = useState(String(lesson?.sort_order ?? module.lessons.length + 1));
+  const [isChallenge, setIsChallenge] = useState(lesson?.is_challenge ?? false);
+  const [timeLimit, setTimeLimit] = useState(lesson?.time_limit_seconds ? String(lesson.time_limit_seconds) : "");
+  const [activity, setActivity] = useState<LessonActivity>(lesson?.activity ?? defaultActivity("quiz"));
+  const [saving, setSaving] = useState(false);
+
+  function setType(type: LessonActivity["type"]) {
+    setActivity(defaultActivity(type));
+  }
+
+  async function save() {
+    setSaving(true);
+    const payload = {
+      moduleId: module.id,
+      lessonId: lesson?.id,
+      activityId: lesson?.activity_id,
+      slug,
+      title,
+      topics: topicsText.split(","),
+      sortOrder: Number(sortOrder) || 0,
+      isChallenge,
+      timeLimitSeconds: timeLimit ? Number(timeLimit) || null : null,
+      activity,
+    };
+    const result = lesson ? await updateMasterLesson(payload) : await createMasterLesson(payload);
+    setSaving(false);
+    if (result.error) {
+      onError(result.error);
+      return;
+    }
+    await onSaved(lesson ? "Master lesson updated." : "Master lesson created.");
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
+      <section className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-primary">{module.title}</p>
+            <h3 className="mt-1 font-display text-xl font-bold">{lesson ? "Edit master lesson" : "Add master lesson"}</h3>
+          </div>
+          <button onClick={onClose} className="rounded-lg border border-border p-2"><X className="size-4" /></button>
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <label className="text-sm font-bold">Title<input value={title} onChange={(event) => setTitle(event.target.value)} className="mt-1 w-full rounded-xl border border-border px-3 py-2.5 font-normal" /></label>
+          <label className="text-sm font-bold">Slug<input value={slug} onChange={(event) => setSlug(event.target.value)} className="mt-1 w-full rounded-xl border border-border px-3 py-2.5 font-normal" /></label>
+          <label className="text-sm font-bold">Topics<input value={topicsText} onChange={(event) => setTopicsText(event.target.value)} placeholder="Comma-separated" className="mt-1 w-full rounded-xl border border-border px-3 py-2.5 font-normal" /></label>
+          <label className="text-sm font-bold">Sort order<input type="number" value={sortOrder} onChange={(event) => setSortOrder(event.target.value)} className="mt-1 w-full rounded-xl border border-border px-3 py-2.5 font-normal" /></label>
+          <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={isChallenge} onChange={(event) => setIsChallenge(event.target.checked)} /> End-of-module challenge</label>
+          <label className="text-sm font-bold">Time limit seconds<input type="number" value={timeLimit} onChange={(event) => setTimeLimit(event.target.value)} className="mt-1 w-full rounded-xl border border-border px-3 py-2.5 font-normal" /></label>
+        </div>
+        <label className="mt-4 block text-sm font-bold">
+          Supported activity type
+          <select value={activity.type} onChange={(event) => setType(event.target.value as LessonActivity["type"])} className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2.5 font-normal">
+            {(Object.keys(activityLabels) as LessonActivity["type"][]).map((type) => <option key={type} value={type}>{activityLabels[type]}</option>)}
+          </select>
+        </label>
+        <section className="mt-5 rounded-2xl border border-primary/20 bg-primary/3 p-4">
+          <ActivityEditor activity={activity} onChange={setActivity} />
+        </section>
+        <div className="mt-6 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-xl px-4 py-2.5 text-sm font-bold">Cancel</button>
+          <button disabled={saving || !title.trim() || !slug.trim()} onClick={() => void save()} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+            {saving ? "Saving..." : "Save master lesson"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function TrainerReportsView(p: ContentProps) {
@@ -1027,6 +1321,7 @@ function ChallengesView(p: ContentProps) {
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
+                        <Status value={challengeSubmissionOptions.find((option) => option.value === challenge.submission_type)?.label ?? challenge.submission_type} />
                         <Status value={challenge.is_published ? "published" : "draft"} />
                         <button onClick={() => p.onEditChallenge(challenge)} className="rounded-lg border border-border bg-white px-3 py-1.5 text-xs font-bold text-primary">Edit</button>
                       </div>
@@ -1049,6 +1344,22 @@ function ChallengesView(p: ContentProps) {
         <Input type="number" value={p.challengeSortOrder} onChange={p.setChallengeSortOrder} placeholder="Sort order" />
         <textarea value={p.challengeDescription} onChange={(event) => p.setChallengeDescription(event.target.value)} maxLength={600} placeholder="Short description" className="min-h-24 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
         <textarea value={p.challengeInstructions} onChange={(event) => p.setChallengeInstructions(event.target.value)} maxLength={4000} placeholder="Instructions students should follow" className="min-h-32 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+        <label className="block text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Expected submission
+          <select value={p.challengeSubmissionType} onChange={(event) => p.setChallengeSubmissionType(event.target.value as ChallengeSubmissionType)} className="input mt-2 normal-case tracking-normal">
+            {challengeSubmissionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-muted-foreground">
+          {challengeSubmissionOptions.find((option) => option.value === p.challengeSubmissionType)?.help}
+        </p>
+        <textarea value={p.challengeSubmissionPrompt} onChange={(event) => p.setChallengeSubmissionPrompt(event.target.value)} maxLength={1000} placeholder="Submission prompt, rubric, or evidence notes shown to students" className="min-h-24 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+        {(p.challengeSubmissionType === "file" || p.challengeSubmissionType === "image") && (
+          <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <Input value={p.challengeAllowedFileTypes} onChange={p.setChallengeAllowedFileTypes} placeholder="Allowed MIME types, comma-separated" />
+            <Input type="number" value={p.challengeMaxFileSizeMb} onChange={p.setChallengeMaxFileSizeMb} placeholder="Max file size in MB" />
+          </div>
+        )}
         <label className="flex items-center gap-2 text-sm font-semibold">
           <input type="checkbox" checked={p.challengeRequired} onChange={(event) => p.setChallengeRequired(event.target.checked)} />
           Required for level unlock

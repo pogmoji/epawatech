@@ -2,6 +2,10 @@ import { supabase } from "@/lib/supabase";
 import type { LessonActivity } from "@/lib/curriculum";
 import { TrainerResult } from "./classrooms";
 
+export const CURRICULUM_ASSET_BUCKET = "curriculum-assets";
+export const CURRICULUM_ASSET_MAX_BYTES = 2 * 1024 * 1024;
+export const CURRICULUM_ASSET_TYPES = ["image/jpeg", "image/png", "image/webp", "image/svg+xml"];
+
 export type CurriculumItem = {
   id: string;
   master_activity_id: string | null;
@@ -22,11 +26,13 @@ export type CurriculumOverride = {
   sort_order_override: number | null;
   removed: boolean;
   is_unlocked: boolean;
+  based_on_master_version: number | null;
 };
 
 export type MasterActivityRoute = {
   id: string;
   route: string;
+  version: number;
 };
 
 export type ClassroomCurriculumData = {
@@ -45,11 +51,23 @@ export type CurriculumSaveItem = {
   removed?: boolean;
   isUnlocked?: boolean;
   masterTitle?: string;
+  masterVersion?: number;
+  basedOnMasterVersion?: number | null;
+  masterActivity?: LessonActivity;
   activity?: LessonActivity;
 };
 
+function validateCurriculumAsset(file: File) {
+  if (!CURRICULUM_ASSET_TYPES.includes(file.type)) {
+    return "Upload a JPG, PNG, WebP, or SVG image.";
+  }
+  if (file.size > CURRICULUM_ASSET_MAX_BYTES) return "Image must be 2 MB or smaller.";
+  return null;
+}
+
 type MasterActivityRow = {
   id: string;
+  version: number | null;
   curriculum_lessons: Relation<{
     slug: string;
     curriculum_modules: Relation<{
@@ -75,6 +93,7 @@ async function getMasterActivityRoutes(): Promise<TrainerResult<MasterActivityRo
     .from("lesson_activities")
     .select(`
       id,
+      version,
       curriculum_lessons:lesson_id (
         slug,
         curriculum_modules:module_id ( slug )
@@ -88,7 +107,7 @@ async function getMasterActivityRoutes(): Promise<TrainerResult<MasterActivityRo
     const curriculumModule = one(lesson?.curriculum_modules ?? null);
     const moduleSlug = curriculumModule?.slug;
     if (!moduleSlug || !lesson?.slug) return [];
-    return [{ id: row.id, route: `${moduleSlug}/${lesson.slug}` }];
+    return [{ id: row.id, route: `${moduleSlug}/${lesson.slug}`, version: row.version ?? 1 }];
   });
 
   return { data: routes, error: null };
@@ -105,7 +124,7 @@ export async function getClassroomCurriculum(classroomId: string): Promise<Train
       .order("sort_order"),
     supabase
       .from("classroom_curriculum_overrides")
-      .select("id, master_activity_id, title_override, configuration_override, sort_order_override, removed, is_unlocked")
+      .select("id, master_activity_id, title_override, configuration_override, sort_order_override, removed, is_unlocked, based_on_master_version")
       .eq("classroom_id", classroomId),
     getMasterActivityRoutes(),
   ]);
@@ -146,7 +165,10 @@ export async function saveClassroomCurriculum(classroomId: string, items: Curric
       classroom_id: classroomId,
       master_activity_id: masterActivityId,
       title_override: item.title !== item.masterTitle ? item.title : null,
-      configuration_override: item.activity ?? null,
+      configuration_override: item.masterActivity && JSON.stringify(item.activity) === JSON.stringify(item.masterActivity)
+        ? null
+        : item.activity ?? null,
+      based_on_master_version: item.basedOnMasterVersion ?? item.masterVersion ?? null,
       sort_order_override: item.moduleIndex * 100 + item.itemIndex,
       removed: Boolean(item.removed),
       is_unlocked: item.isUnlocked !== false,
@@ -189,4 +211,45 @@ export async function saveClassroomCurriculum(classroomId: string, items: Curric
   }
 
   return { data: true, error: null };
+}
+
+export async function resetClassroomCurriculum(classroomId: string): Promise<TrainerResult<boolean>> {
+  if (!supabase) return { data: null, error: "Supabase is not configured for this deployment." };
+
+  const overrides = await supabase
+    .from("classroom_curriculum_overrides")
+    .delete()
+    .eq("classroom_id", classroomId);
+  if (overrides.error) return { data: null, error: "Failed to remove classroom curriculum overrides." };
+
+  const customItems = await supabase
+    .from("classroom_curriculum_items")
+    .delete()
+    .eq("classroom_id", classroomId)
+    .eq("origin", "custom");
+  if (customItems.error) return { data: null, error: "Failed to remove trainer-added curriculum items." };
+
+  return { data: true, error: null };
+}
+
+export async function uploadCurriculumAsset(file: File): Promise<TrainerResult<{ path: string; publicUrl: string }>> {
+  if (!supabase) return { data: null, error: "Supabase is not configured for this deployment." };
+
+  const validationError = validateCurriculumAsset(file);
+  if (validationError) return { data: null, error: validationError };
+
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData.user) return { data: null, error: "Not authenticated." };
+
+  const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
+  const path = `${userData.user.id}/drag-drop/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+  const upload = await supabase.storage.from(CURRICULUM_ASSET_BUCKET).upload(path, file, {
+    contentType: file.type,
+    upsert: false,
+  });
+
+  if (upload.error) return { data: null, error: upload.error.message || "Image upload failed." };
+
+  const publicUrl = supabase.storage.from(CURRICULUM_ASSET_BUCKET).getPublicUrl(path).data.publicUrl;
+  return { data: { path, publicUrl }, error: null };
 }

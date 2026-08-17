@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
-import { tracks, type Challenge, type Lesson, type LessonActivity, type Track } from "@/lib/curriculum";
+import { type Challenge, type Lesson, type LessonActivity, type Track } from "@/lib/curriculum";
+import { getMasterTracks } from "@/lib/api/curriculum/master";
 import type { StudentResult } from "./enrollment";
 
 export type ActivityRouteMap = Record<string, string>;
@@ -81,7 +82,7 @@ export async function getEffectiveStudentTracks(classroomId: string): Promise<St
 export async function getEffectiveStudentCurriculum(classroomId: string): Promise<StudentResult<EffectiveStudentCurriculum>> {
   if (!supabase) return { data: null, error: "Supabase is not configured for this deployment." };
 
-  const [activityMapResult, overridesResult, customItemsResult] = await Promise.all([
+  const [activityMapResult, overridesResult, customItemsResult, masterTracks] = await Promise.all([
     getStudentActivityRouteMap(),
     supabase
       .from("classroom_curriculum_overrides")
@@ -93,6 +94,7 @@ export async function getEffectiveStudentCurriculum(classroomId: string): Promis
       .eq("classroom_id", classroomId)
       .eq("origin", "custom")
       .order("sort_order"),
+    getMasterTracks(),
   ]);
 
   if (activityMapResult.error || !activityMapResult.data) {
@@ -103,7 +105,7 @@ export async function getEffectiveStudentCurriculum(classroomId: string): Promis
   if (customItemsResult.error) return { data: null, error: "Failed to load classroom curriculum additions." };
 
   const curriculum = applyEffectiveCurriculum(
-      tracks,
+      masterTracks,
       activityMapResult.data,
       (overridesResult.data ?? []) as CurriculumOverrideRow[],
       (customItemsResult.data ?? []) as ClassroomCurriculumItemRow[],

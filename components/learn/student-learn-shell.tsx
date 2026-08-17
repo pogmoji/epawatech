@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { LayoutDashboard, LogOut, Menu, X } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
+import { BrandLogo } from "@/components/brand-logo";
 
 export function StudentLearnShell({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -23,10 +24,12 @@ export function StudentLearnShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-[#f5f8fc] text-code-bg">
       <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-18 max-w-370 items-center justify-between gap-4 px-5 sm:px-10">
-          <div>
-            <p className="font-display text-xl font-bold text-primary">ePawatech</p>
-            <p className="text-xs font-semibold text-muted-foreground">Student learning workspace</p>
-          </div>
+          <BrandLogo
+            subtitle="Student learning workspace"
+            logoClassName="h-9 w-9 sm:h-11 sm:w-11"
+            textClassName="text-lg text-primary sm:text-xl"
+            subtitleClassName="font-semibold text-muted-foreground"
+          />
           <nav className="hidden items-center gap-2 md:flex" aria-label="Student learning navigation">
             <Link href="/student" className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground">
               <LayoutDashboard size={16} />

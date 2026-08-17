@@ -12,6 +12,27 @@ type Props = {
   onComplete: (score: number, total: number) => void
 }
 
+function ActivityImage({ src, alt, className = "" }: { src?: string; alt: string; className?: string }) {
+  if (!src) return null
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={`rounded-xl object-contain ${className}`}
+      draggable={false}
+    />
+  )
+}
+
+function DragItemPreview({ item, compact = false }: { item: DragDropItem; compact?: boolean }) {
+  return (
+    <>
+      <ActivityImage src={item.imageUrl} alt={item.imageAlt || item.label} className={compact ? "h-10 w-12 bg-white/80" : "h-14 w-16 bg-muted/40"} />
+      <span>{item.label}</span>
+    </>
+  )
+}
+
 export default function DragDrop({ items: initialItems, zones, instruction, onComplete }: Props) {
   // shuffle items on first render
   const [pool, setPool] = useState<DragDropItem[]>(() =>
@@ -127,7 +148,7 @@ export default function DragDrop({ items: initialItems, zones, instruction, onCo
               className="flex cursor-grab items-center gap-2 rounded-xl border border-primary/30 bg-card px-4 py-3 text-sm font-semibold shadow-sm transition active:cursor-grabbing active:shadow-md hover:border-primary hover:bg-primary/5"
             >
               <GripVertical size={14} className="text-muted-foreground" />
-              {item.label}
+              <DragItemPreview item={item} />
             </motion.div>
           ))}
         </AnimatePresence>
@@ -157,8 +178,9 @@ export default function DragDrop({ items: initialItems, zones, instruction, onCo
               key={zone.id}
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => handleDrop(zone.id)}
-              className={`flex min-h-[100px] flex-col items-center justify-center rounded-2xl border-2 p-4 text-center transition-colors ${borderColor} ${bg}`}
+              className={`flex min-h-[150px] flex-col items-center justify-center rounded-2xl border-2 p-4 text-center transition-colors ${borderColor} ${bg}`}
             >
+              <ActivityImage src={zone.imageUrl} alt={zone.imageAlt || zone.label} className="mb-3 h-24 w-full bg-white/70" />
               <span className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 {zone.label}
               </span>
@@ -168,7 +190,7 @@ export default function DragDrop({ items: initialItems, zones, instruction, onCo
                   animate={{ scale: 1 }}
                   className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground"
                 >
-                  <Check size={14} /> {item.label}
+                  <Check size={14} /> <DragItemPreview item={item} compact />
                 </motion.div>
               ) : (
                 <span className="text-xs text-muted-foreground">Drop here</span>
@@ -281,7 +303,7 @@ export function DragClassify({ items: initialItems, zones, instruction, onComple
               className="flex cursor-grab items-center gap-2 rounded-xl border border-primary/30 bg-card px-4 py-3 text-sm font-semibold shadow-sm transition active:cursor-grabbing active:shadow-md hover:border-primary hover:bg-primary/5"
             >
               <GripVertical size={14} className="text-muted-foreground" />
-              {item.label}
+              <DragItemPreview item={item} />
             </motion.div>
           ))}
         </AnimatePresence>
@@ -304,6 +326,7 @@ export function DragClassify({ items: initialItems, zones, instruction, onComple
               <h4 className="mb-4 text-center text-sm font-bold uppercase tracking-wider text-muted-foreground">
                 {zone.label}
               </h4>
+              <ActivityImage src={zone.imageUrl} alt={zone.imageAlt || zone.label} className="mx-auto mb-4 h-24 w-full bg-white/70" />
               <div className="flex flex-wrap gap-2">
                 {classified[zone.id].map((item) => (
                   <motion.span
@@ -312,7 +335,7 @@ export function DragClassify({ items: initialItems, zones, instruction, onComple
                     animate={{ scale: 1 }}
                     className="inline-flex items-center gap-1 rounded-lg bg-primary/10 px-3 py-2 text-xs font-semibold text-primary"
                   >
-                    <Check size={12} /> {item.label}
+                    <Check size={12} /> <DragItemPreview item={item} compact />
                   </motion.span>
                 ))}
                 {classified[zone.id].length === 0 && (
