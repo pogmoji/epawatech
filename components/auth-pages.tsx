@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowRight, Eye, EyeOff, Gamepad2, GraduationCap } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, FileText, Gamepad2, GraduationCap, Trash2 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import {
   dashboardPath,
@@ -14,6 +14,7 @@ import {
   normalizeStudentUsername,
   studentUsernameAuthEmail,
 } from "@/lib/auth";
+import { uploadMyTrainerCertificate, validateTrainerCertificate } from "@/lib/api/trainer/profile";
 import { supabase } from "@/lib/supabase";
 
 const inputClass =
@@ -374,6 +375,7 @@ function SignupForm({ role }: { role: "student" | "trainer" }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [certificate, setCertificate] = useState<File | null>(null);
   const [usernameStatus, setUsernameStatus] = useState<
     "idle" | "checking" | "available" | "taken" | "invalid"
   >("idle");
@@ -426,8 +428,8 @@ function SignupForm({ role }: { role: "student" | "trainer" }) {
     )
       return setError(
         student
-          ? "Enter your name and matching passwords of at least 6 characters."
-          : "Enter your name and email, then use matching passwords of at least 6 characters.",
+          ? "Enter your full name and matching passwords of at least 6 characters."
+          : "Enter your full name and email, then use matching passwords of at least 6 characters.",
       );
     if (student && !isValidStudentUsername(form.username))
       return setError(
@@ -438,8 +440,12 @@ function SignupForm({ role }: { role: "student" | "trainer" }) {
       (!form.email.trim() || !isValidPhoneNumber(form.phoneNumber))
     )
       return setError(
-        "Enter your name, email, and phone number in international format, for example +254712345678.",
+        "Enter your full name, email, and phone number in international format, for example +254712345678.",
       );
+    if (!student && certificate) {
+      const certificateError = validateTrainerCertificate(certificate);
+      if (certificateError) return setError(certificateError);
+    }
     if (!supabase)
       return setError("Authentication is not configured for this deployment.");
     setBusy(true);
@@ -491,12 +497,27 @@ function SignupForm({ role }: { role: "student" | "trainer" }) {
         },
       },
     });
-    setBusy(false);
-    if (signUpError) return setError(friendlyAuthError(signUpError.message));
-    if (!data.session)
+    if (signUpError) {
+      setBusy(false);
+      return setError(friendlyAuthError(signUpError.message));
+    }
+    if (!data.session) {
+      setBusy(false);
       return setMessage(
-        "Check your email to confirm your account, then sign in.",
+        certificate
+          ? "Check your email to confirm your account, then sign in and upload your certificate from your profile."
+          : "Check your email to confirm your account, then sign in.",
       );
+    }
+    if (certificate) {
+      const upload = await uploadMyTrainerCertificate(certificate);
+      if (upload.error) {
+        setBusy(false);
+        setMessage("Your trainer account was created. Sign in and upload your certificate from your profile.");
+        return;
+      }
+    }
+    setBusy(false);
     router.replace("/trainer");
   }
 
@@ -561,6 +582,42 @@ function SignupForm({ role }: { role: "student" | "trainer" }) {
             required
             className={inputClass}
           />
+          <div className="rounded-xl border border-primary/20 bg-card p-3 text-left">
+            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-dashed border-primary/30 px-3 py-3 text-sm font-semibold text-primary hover:bg-secondary/40">
+              <span className="flex items-center gap-2"><FileText size={18} />Upload certificate PDF</span>
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  if (!file) return;
+                  const certificateError = validateTrainerCertificate(file);
+                  if (certificateError) {
+                    setCertificate(null);
+                    setError(certificateError);
+                    event.currentTarget.value = "";
+                    return;
+                  }
+                  setError("");
+                  setCertificate(file);
+                }}
+              />
+            </label>
+            {certificate ? (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-secondary px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-foreground">{certificate.name}</p>
+                  <p className="text-xs text-muted-foreground">{Math.ceil(certificate.size / 1024)} KB · PDF</p>
+                </div>
+                <button type="button" onClick={() => setCertificate(null)} className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-bold text-destructive">
+                  <Trash2 size={14} />Remove
+                </button>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">Optional during sign-up. PDF only, up to 5 MB.</p>
+            )}
+          </div>
         </>
       )}
       <PasswordField

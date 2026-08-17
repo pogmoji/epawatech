@@ -4,7 +4,21 @@ export type AdminResult<T> = { data: T; error: null } | { data: null; error: str
 
 export type Centre = { id: string; name: string; description: string | null; status: string; created_at: string };
 export type Cohort = { id: string; centre_id: string; name: string; status: string; start_date: string | null; end_date: string | null; created_at: string };
-export type ProfileRecord = { id: string; full_name: string; username: string | null; phone_number: string | null; role: "admin" | "trainer" | "student"; status: "pending" | "active" | "suspended" | "rejected"; created_at: string };
+export type ProfileRecord = {
+  id: string;
+  full_name: string;
+  username: string | null;
+  phone_number: string | null;
+  certificate_path: string | null;
+  certificate_file_name: string | null;
+  certificate_mime_type: string | null;
+  certificate_file_size: number | null;
+  certificate_uploaded_at: string | null;
+  signed_certificate_url?: string;
+  role: "admin" | "trainer" | "student";
+  status: "pending" | "active" | "suspended" | "rejected";
+  created_at: string;
+};
 export type Classroom = { id: string; cohort_id: string; name: string; status: string; created_by: string; created_at: string };
 export type TrainerAssignment = { id: string; trainer_id: string; classroom_id: string | null; centre_id: string | null; cohort_id: string | null; role: string; status: string; start_date: string | null; end_date: string | null };
 export type StudentEnrollment = { id: string; student_id: string; classroom_id: string; status: string; start_date: string | null; end_date: string | null };
@@ -99,6 +113,18 @@ function failure<T>(message: string): AdminResult<T> {
   return { data: null, error: message };
 }
 
+const profileSelect = "id, full_name, username, phone_number, certificate_path, certificate_file_name, certificate_mime_type, certificate_file_size, certificate_uploaded_at, role, status, created_at";
+
+async function addTrainerCertificateUrls(trainers: ProfileRecord[]) {
+  if (!supabase) return trainers;
+  const client = supabase;
+  return Promise.all(trainers.map(async (trainer) => {
+    if (!trainer.certificate_path) return trainer;
+    const signed = await client.storage.from("trainer-certificates").createSignedUrl(trainer.certificate_path, 60 * 10);
+    return { ...trainer, signed_certificate_url: signed.data?.signedUrl };
+  }));
+}
+
 export async function getAdminDashboardData(): Promise<AdminResult<AdminDashboardData>> {
   if (!supabase) return unavailable();
   const client = supabase;
@@ -106,9 +132,9 @@ export async function getAdminDashboardData(): Promise<AdminResult<AdminDashboar
   const [centres, cohorts, admins, trainers, students, classrooms, assignments, enrollments, feedback, challengeLevels, universalChallenges, challengeProgress, trainerReports, weeklyTopics, weeklyTopicSubmissions, classroomWeeklyReports] = await Promise.all([
     client.from("centres").select("id, name, description, status, created_at").order("name"),
     client.from("cohorts").select("id, centre_id, name, status, start_date, end_date, created_at").order("created_at", { ascending: false }),
-    client.from("profiles").select("id, full_name, username, phone_number, role, status, created_at").eq("role", "admin").order("full_name"),
-    client.from("profiles").select("id, full_name, username, phone_number, role, status, created_at").eq("role", "trainer").order("full_name"),
-    client.from("profiles").select("id, full_name, username, phone_number, role, status, created_at").eq("role", "student").order("full_name"),
+    client.from("profiles").select(profileSelect).eq("role", "admin").order("full_name"),
+    client.from("profiles").select(profileSelect).eq("role", "trainer").order("full_name"),
+    client.from("profiles").select(profileSelect).eq("role", "student").order("full_name"),
     client.from("classrooms").select("id, cohort_id, name, status, created_by, created_at").order("name"),
     client.from("trainer_assignments").select("id, trainer_id, classroom_id, centre_id, cohort_id, role, status, start_date, end_date"),
     client.from("student_enrollments").select("id, student_id, classroom_id, status, start_date, end_date"),
@@ -155,11 +181,13 @@ export async function getAdminDashboardData(): Promise<AdminResult<AdminDashboar
         completions: completedCounts.get(challenge.id) ?? 0,
       }));
 
+  const trainersData = await addTrainerCertificateUrls((trainers.data ?? []) as ProfileRecord[]);
+
   return {
     data: {
       centres: (centres.data ?? []) as Centre[], cohorts: (cohorts.data ?? []) as Cohort[],
       admins: (admins.data ?? []) as ProfileRecord[],
-      trainers: (trainers.data ?? []) as ProfileRecord[], students: (students.data ?? []) as ProfileRecord[],
+      trainers: trainersData, students: (students.data ?? []) as ProfileRecord[],
       classrooms: (classrooms.data ?? []) as Classroom[], assignments: (assignments.data ?? []) as TrainerAssignment[],
       enrollments: (enrollments.data ?? []) as StudentEnrollment[],
       feedback: feedbackData,
@@ -362,21 +390,22 @@ export async function createCohort(input: { centreId: string; name: string; stat
 
 export async function updateTrainerStatus(id: string, status: "active" | "rejected"): Promise<AdminResult<ProfileRecord>> {
   if (!supabase) return unavailable();
-  const { data, error } = await supabase.from("profiles").update({ status }).eq("id", id).eq("role", "trainer").select("id, full_name, username, phone_number, role, status, created_at").single();
+  const { data, error } = await supabase.from("profiles").update({ status }).eq("id", id).eq("role", "trainer").select(profileSelect).single();
   if (error) return failure(`Unable to ${status === "active" ? "approve" : "reject"} the trainer. Please try again.`);
-  return { data: data as ProfileRecord, error: null };
+  const [trainer] = await addTrainerCertificateUrls([data as ProfileRecord]);
+  return { data: trainer, error: null };
 }
 
 export async function getProfiles(): Promise<AdminResult<ProfileRecord[]>> {
   if (!supabase) return unavailable();
-  const { data, error } = await supabase.from("profiles").select("id, full_name, username, phone_number, role, status, created_at").order("full_name");
+  const { data, error } = await supabase.from("profiles").select(profileSelect).order("full_name");
   if (error) return failure("We could not load account profiles.");
   return { data: (data ?? []) as ProfileRecord[], error: null };
 }
 
 export async function updateProfileDetails(id: string, input: { fullName: string; username: string | null; phoneNumber: string | null }): Promise<AdminResult<ProfileRecord>> {
   if (!supabase) return unavailable();
-  const { data, error } = await supabase.from("profiles").update({ full_name: input.fullName.trim(), username: input.username, phone_number: input.phoneNumber }).eq("id", id).select("id, full_name, username, phone_number, role, status, created_at").single();
+  const { data, error } = await supabase.from("profiles").update({ full_name: input.fullName.trim(), username: input.username, phone_number: input.phoneNumber }).eq("id", id).select(profileSelect).single();
   if (error) return failure("The profile could not be updated. Check that the username is unique.");
   return { data: data as ProfileRecord, error: null };
 }

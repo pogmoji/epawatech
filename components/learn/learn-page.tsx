@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Monitor, FileText, BookOpen, ArrowRight, Check, Trophy, KeyRound, Lock } from 'lucide-react'
 import { Shell } from '@/components/site-shell'
+import { StudentLearnShell } from '@/components/learn/student-learn-shell'
 import { LoginPage } from '@/components/auth-pages'
 import { tracks, type Track } from '@/lib/curriculum'
 import { getStudentEnrollmentContext, joinClassroomByCode, type EnrollmentContext } from '@/lib/api/student/enrollment'
@@ -21,7 +22,7 @@ const ICONS: Record<string, typeof Monitor> = { Monitor, FileText }
 
 export default function LearnPage() {
   const router = useRouter()
-  const { user, loading: authLoading } = useAuth()
+  const { user, profile, loading: authLoading } = useAuth()
   const [progress, setProgress] = useState<Record<string, string[]>>({})
   const [effectiveTracks, setEffectiveTracks] = useState<Track[]>(tracks)
   const [enrollment, setEnrollment] = useState<EnrollmentContext | null>(null)
@@ -136,8 +137,10 @@ export default function LearnPage() {
     return <LoginPage />
   }
 
+  const Chrome = profile?.role === "student" ? StudentLearnShell : Shell
+
   return (
-    <Shell>
+    <Chrome>
       <div className="mx-auto max-w-370 px-5 py-14 sm:px-10 sm:py-20">
         {/* Header */}
         <div className="mx-auto max-w-2xl text-center">
@@ -318,7 +321,7 @@ export default function LearnPage() {
           />
         )}
       </div>
-    </Shell>
+    </Chrome>
   )
 }
 

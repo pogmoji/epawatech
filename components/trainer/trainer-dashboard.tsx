@@ -16,6 +16,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Eye,
+  FileText,
   GripVertical,
   HardHat,
   LayoutDashboard,
@@ -30,6 +31,8 @@ import {
   Send,
   LogOut,
   Upload,
+  Trash2,
+  User,
   Users,
   Video,
   X,
@@ -62,6 +65,7 @@ import { getStudentTypingHistory, getTrainerClassroomTypingSummary, type Trainer
 import { createTrainerAdminReport, getMyTrainerAdminReports, type TrainerAdminReport } from "@/lib/api/trainer/admin-reports";
 import { getTrainerWeeklyTopics, submitWeeklyTopicResponse, type TrainerWeeklyTopicSubmission, type WeeklyTopic } from "@/lib/api/trainer/weekly-topics";
 import { getClassroomWeeklyReports, submitClassroomWeeklyReport, type ClassroomWeeklyReport } from "@/lib/api/trainer/weekly-reports";
+import { getMyTrainerProfile, removeMyTrainerCertificate, updateMyTrainerProfile, uploadMyTrainerCertificate, validateTrainerCertificate, type TrainerProfileDetails } from "@/lib/api/trainer/profile";
 import type { TypingAttempt } from "@/lib/api/student/typing";
 
 type View =
@@ -75,6 +79,7 @@ type View =
   | "reports"
   | "weekly-report"
   | "weekly-topics"
+  | "profile"
   | "contact";
 type CurriculumItem = {
   id: string;
@@ -275,6 +280,7 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "reports", label: "Reports", icon: BarChart3 },
   { id: "weekly-report", label: "Weekly Report", icon: ClipboardCheck },
   { id: "weekly-topics", label: "Weekly Inputs", icon: CalendarDays },
+  { id: "profile", label: "Profile", icon: User },
   { id: "contact", label: "Contact Admin", icon: Headset },
 ];
 
@@ -303,6 +309,8 @@ export default function TrainerDashboard() {
   const [attendanceSessions, setAttendanceSessions] = useState<AttendanceSessionSummary[]>([]);
   const [hardwareSessions, setHardwareSessions] = useState<HardwareSession[]>([]);
   const [typingSummary, setTypingSummary] = useState<TrainerTypingSummary>(emptyTypingSummary);
+  const [trainerProfileDetails, setTrainerProfileDetails] = useState<TrainerProfileDetails | null>(null);
+  const [trainerProfileError, setTrainerProfileError] = useState("");
   const [awards, setAwards] = useState<
     { student: string; badge: string; date: string }[]
   >([]);
@@ -363,10 +371,26 @@ export default function TrainerDashboard() {
     if (typingRes.data) setTypingSummary(typingRes.data);
   }, [activeClassroomId]);
 
+  const loadTrainerProfile = useCallback(async () => {
+    const result = await getMyTrainerProfile();
+    if (result.error) {
+      setTrainerProfileDetails(null);
+      setTrainerProfileError(result.error);
+      return;
+    }
+    setTrainerProfileDetails(result.data);
+    setTrainerProfileError("");
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadDashboardData(); }, 0);
     return () => window.clearTimeout(timer);
   }, [loadDashboardData]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadTrainerProfile(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadTrainerProfile]);
 
   useEffect(() => {
     if (!notice) return;
@@ -665,6 +689,15 @@ export default function TrainerDashboard() {
           )}
           {view === "weekly-report" && <WeeklyReport classroom={activeClassroom} notify={setNotice} />}
           {view === "weekly-topics" && <WeeklyTopics notify={setNotice} />}
+          {view === "profile" && (
+            <TrainerProfile
+              key={trainerProfileDetails?.id ?? "loading"}
+              details={trainerProfileDetails}
+              error={trainerProfileError}
+              notify={setNotice}
+              onChanged={loadTrainerProfile}
+            />
+          )}
           {view === "contact" && (
             <ContactAdmin
               classroomId={activeClassroom.id}
@@ -3533,6 +3566,150 @@ const reportCategories = [
   { value: "administrative", label: "Administrative" },
   { value: "other", label: "Other" },
 ];
+
+function formatFileSize(size: number | null) {
+  if (!size) return "PDF";
+  if (size < 1024 * 1024) return `${Math.ceil(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function TrainerProfile({
+  details,
+  error,
+  notify,
+  onChanged,
+}: {
+  details: TrainerProfileDetails | null;
+  error: string;
+  notify: (message: string) => void;
+  onChanged: () => Promise<void>;
+}) {
+  const { refreshProfile } = useAuth();
+  const [fullName, setFullName] = useState(() => details?.fullName ?? "");
+  const [phoneNumber, setPhoneNumber] = useState(() => details?.phoneNumber ?? "");
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [localError, setLocalError] = useState("");
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setLocalError("");
+    const result = await updateMyTrainerProfile({ fullName, phoneNumber });
+    setSaving(false);
+    if (result.error) {
+      setLocalError(result.error);
+      return;
+    }
+    await refreshProfile();
+    await onChanged();
+    notify("Profile updated.");
+  }
+
+  async function uploadCertificate(file: File) {
+    const certificateError = validateTrainerCertificate(file);
+    if (certificateError) {
+      setLocalError(certificateError);
+      return;
+    }
+    setUploading(true);
+    setLocalError("");
+    const result = await uploadMyTrainerCertificate(file, details?.certificatePath);
+    setUploading(false);
+    if (result.error) {
+      setLocalError(result.error);
+      return;
+    }
+    await onChanged();
+    notify("Certificate uploaded.");
+  }
+
+  async function removeCertificate() {
+    if (!details?.certificatePath) return;
+    setUploading(true);
+    setLocalError("");
+    const result = await removeMyTrainerCertificate(details.certificatePath);
+    setUploading(false);
+    if (result.error) {
+      setLocalError(result.error);
+      return;
+    }
+    await onChanged();
+    notify("Certificate removed.");
+  }
+
+  return (
+    <>
+      <PageHeading eyebrow="Trainer account" title="Profile" />
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <Card>
+          <h3 className="font-display text-xl font-bold">My details</h3>
+          <form onSubmit={save} className="mt-5 space-y-4">
+            <label className="block text-sm font-semibold text-foreground">
+              Full name
+              <input value={fullName} onChange={(event) => setFullName(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal outline-none focus:border-primary" />
+            </label>
+            <label className="block text-sm font-semibold text-foreground">
+              Phone number
+              <input value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} placeholder="+254712345678" className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal outline-none focus:border-primary" />
+            </label>
+            {(error || localError) && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{localError || error}</p>}
+            <button disabled={saving || !details} type="submit" className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-60">
+              <Check size={16} />{saving ? "Saving..." : "Save details"}
+            </button>
+          </form>
+        </Card>
+        <Card>
+          <h3 className="font-display text-xl font-bold">Verification certificate</h3>
+          <div className="mt-4 rounded-xl border border-border bg-muted/30 p-4">
+            {details?.certificateFileName ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-start gap-3">
+                  <FileText className="mt-1 size-5 text-primary" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold">{details.certificateFileName}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatFileSize(details.certificateFileSize)}
+                      {details.certificateUploadedAt ? ` · Uploaded ${new Date(details.certificateUploadedAt).toLocaleDateString()}` : ""}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {details.signedCertificateUrl && (
+                    <a href={details.signedCertificateUrl} target="_blank" rel="noreferrer" className="rounded-lg bg-card px-3 py-2 text-xs font-bold text-primary shadow-sm hover:underline">
+                      View PDF
+                    </a>
+                  )}
+                  <button type="button" disabled={uploading} onClick={() => void removeCertificate()} className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 disabled:opacity-50">
+                    <Trash2 size={14} />Remove
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm leading-6 text-muted-foreground">Upload a PDF certificate so Admin can verify your trainer account.</p>
+            )}
+          </div>
+          <label className="mt-4 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-dashed border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+            <span className="inline-flex items-center gap-2 font-semibold text-primary"><Upload size={16} />{details?.certificatePath ? "Replace certificate" : "Upload certificate"}</span>
+            <span className="text-xs text-muted-foreground">PDF · 5MB max</span>
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              className="sr-only"
+              disabled={uploading}
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                if (file) void uploadCertificate(file);
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
+          {uploading && <p className="mt-3 text-sm font-semibold text-primary">Updating certificate...</p>}
+        </Card>
+      </div>
+    </>
+  );
+}
 
 function ContactAdmin({
   classroomId,

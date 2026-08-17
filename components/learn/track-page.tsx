@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { BookOpen, Timer, Trophy, ArrowRight, ArrowLeft, Lock } from 'lucide-react'
 import { Shell } from '@/components/site-shell'
+import { StudentLearnShell } from '@/components/learn/student-learn-shell'
 import { LoginPage } from '@/components/auth-pages'
 import LearnLayout from '@/components/learn/learn-layout'
 import Quiz from '@/components/learn/quiz'
@@ -33,7 +34,7 @@ type Props = {
 }
 
 export default function TrackPage({ trackSlug, lessonSlug }: Props) {
-  const { user, loading: authLoading } = useAuth()
+  const { user, profile, loading: authLoading } = useAuth()
   const fallbackTrack = getTrack(trackSlug)
   const [track, setTrack] = useState<Track | undefined>(fallbackTrack)
   const [completedLessons, setCompletedLessons] = useState<string[]>([])
@@ -186,14 +187,12 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
 
   if (authLoading) {
     return (
-      <Shell>
-        <div className="flex min-h-[60vh] items-center justify-center">
-          <div className="text-center">
-            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
-            <p className="mt-4 text-sm font-semibold text-muted-foreground">Checking lesson access...</p>
-          </div>
+      <main className="flex min-h-screen items-center justify-center bg-background p-6">
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
+          <p className="mt-4 text-sm font-semibold text-muted-foreground">Checking lesson access...</p>
         </div>
-      </Shell>
+      </main>
     )
   }
 
@@ -201,9 +200,11 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
     return <LoginPage />
   }
 
+  const Chrome = profile?.role === "student" ? StudentLearnShell : Shell
+
   if (!accessLoading && !classroomId) {
     return (
-      <Shell>
+      <Chrome>
         <div className="flex min-h-[60vh] items-center justify-center px-5">
           <div className="max-w-md rounded-2xl border border-blue-100 bg-blue-50 p-8 text-center text-blue-950 shadow-sm">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-primary shadow-sm">
@@ -218,13 +219,13 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
             </Link>
           </div>
         </div>
-      </Shell>
+      </Chrome>
     )
   }
 
   if (!track) {
     return (
-      <Shell>
+      <Chrome>
         <div className="flex min-h-[60vh] items-center justify-center">
           <div className="text-center">
             <h2 className="font-display text-2xl font-bold text-code-bg">Track Not Found</h2>
@@ -234,20 +235,20 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
             </Link>
           </div>
         </div>
-      </Shell>
+      </Chrome>
     )
   }
 
   if (accessLoading) {
     return (
-      <Shell>
+      <Chrome>
         <div className="flex min-h-[60vh] items-center justify-center">
           <div className="text-center">
             <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
             <p className="mt-4 text-sm font-semibold text-muted-foreground">Checking lesson access...</p>
           </div>
         </div>
-      </Shell>
+      </Chrome>
     )
   }
 
@@ -259,7 +260,7 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
 
   if (lockedMessage) {
     return (
-      <Shell>
+      <Chrome>
         <LearnLayout track={track} completedLessons={completedLessons}>
           <div className="flex min-h-[40vh] items-center justify-center">
             <div className="max-w-md rounded-2xl border border-slate-200 bg-slate-50 p-8 text-center shadow-sm">
@@ -274,13 +275,13 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
             </div>
           </div>
         </LearnLayout>
-      </Shell>
+      </Chrome>
     )
   }
 
   if (!activity) {
     return (
-      <Shell>
+      <Chrome>
         <LearnLayout track={track} completedLessons={completedLessons}>
           <div className="flex min-h-[40vh] items-center justify-center">
             <div className="text-center">
@@ -289,7 +290,7 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
             </div>
           </div>
         </LearnLayout>
-      </Shell>
+      </Chrome>
     )
   }
 
@@ -303,7 +304,7 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
     : null
 
   return (
-    <Shell>
+    <Chrome>
       <LearnLayout track={track} completedLessons={completedLessons}>
         <motion.div
           key={lessonSlug}
@@ -376,7 +377,7 @@ export default function TrackPage({ trackSlug, lessonSlug }: Props) {
           )}
         </motion.div>
       </LearnLayout>
-    </Shell>
+    </Chrome>
   )
 }
 

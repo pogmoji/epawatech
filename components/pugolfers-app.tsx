@@ -807,7 +807,7 @@ function Contact() {
                 </p>
               </div>
               <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Your name *
+                Your full name *
                 <input
                   required
                   name="name"

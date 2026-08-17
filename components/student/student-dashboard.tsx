@@ -854,9 +854,9 @@ function ProfilePanel({
           <form onSubmit={submit} className="p-6 sm:p-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Profile studio</p>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Profile</p>
                 <h3 className="mt-2 font-display text-2xl font-bold text-foreground">Make this space yours</h3>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">Your name, class, bio, and goals help your trainer support you better.</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">Your full name, class, bio, and goals help your trainer support you better.</p>
               </div>
               <button disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-60">
                 <Save size={16} />
@@ -932,7 +932,7 @@ function ProfileBadge({ icon: Icon, label, value }: { icon: typeof School; label
       </span>
       <span className="min-w-0">
         <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
-        <span className="mt-0.5 block break-words text-sm font-bold text-foreground">{value}</span>
+        <span className="mt-0.5 block wrap-break-words text-sm font-bold text-foreground">{value}</span>
       </span>
     </div>
   );

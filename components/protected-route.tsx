@@ -31,7 +31,7 @@ export function ProtectedRoute({ role, children }: { role: AppRole; children: Re
 
   const statusMessage = profileStatusMessage(profile);
   if (statusMessage) {
-    return <main className="flex min-h-screen items-center justify-center bg-background p-6"><section className="max-w-md rounded-2xl border border-border bg-card p-8 text-center shadow-sm"><h1 className="font-display text-2xl font-bold text-foreground">Account access unavailable</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">{statusMessage}</p></section></main>;
+    return <main className="flex min-h-screen items-center justify-center bg-background p-6"><section className="max-w-md rounded-2xl border border-border bg-card p-8 text-center shadow-sm"><h1 className="font-display text-2xl font-bold text-foreground">Account access pending</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">{statusMessage}</p></section></main>;
   }
 
   if (profile.role !== role) return null;
