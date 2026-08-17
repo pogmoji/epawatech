@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Monitor, FileText, BookOpen, ArrowRight, Check, Trophy, KeyRound, Lock } from 'lucide-react'
-import { Shell } from '@/components/site-shell'
+import { Navbar, Shell } from '@/components/site-shell'
 import { StudentLearnShell } from '@/components/learn/student-learn-shell'
 import { LoginPage } from '@/components/auth-pages'
 import { tracks, type Track } from '@/lib/curriculum'
@@ -134,7 +134,7 @@ export default function LearnPage() {
   }
 
   if (!user) {
-    return <LoginPage />
+    return <><Navbar /><LoginPage /></>
   }
 
   const Chrome = profile?.role === "student" ? StudentLearnShell : Shell

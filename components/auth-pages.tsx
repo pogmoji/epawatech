@@ -713,7 +713,7 @@ function AuthLinks({ teacher = false }: { teacher?: boolean }) {
         <p>
           Are you a teacher?{" "}
           <Link href="/signup/teacher" className="text-primary hover:underline">
-            Sign up as a teacher
+            Sign up as a trainer
           </Link>
         </p>
       )}

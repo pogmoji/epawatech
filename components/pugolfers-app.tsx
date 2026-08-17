@@ -86,6 +86,15 @@ const trackIcons: Record<string, typeof BookOpen> = {
   Sparkles,
 };
 const studentWelcomeStorageKey = "epawatech:student-welcome";
+const cbcCompetencies = [
+  { title: "Express and team up", text: "Share ideas clearly, listen well, and build with others." },
+  { title: "Think through problems", text: "Use evidence, logic, and curiosity to choose smart solutions." },
+  { title: "Create and imagine", text: "Turn original ideas into useful work, designs, and projects." },
+  { title: "Practice citizenship", text: "Understand responsibility, rights, and positive community action." },
+  { title: "Use digital tools wisely", text: "Work safely and confidently with technology for learning." },
+  { title: "Keep learning", text: "Build habits for reflection, practice, and lifelong improvement." },
+  { title: "Trust your growth", text: "Develop confidence to start, persist, and finish meaningful tasks." },
+];
 
 function studentDisplayName(fullName: string) {
   const names = fullName.trim().split(/\s+/).filter(Boolean);
@@ -846,7 +855,7 @@ function Contact() {
               <div className="mt-7 space-y-4">
                 {[
                   [Phone, "Phone & WhatsApp", "+254 748 881 679"],
-                  [Mail, "Email Us", "info@codewithkids.africa"],
+                  [Mail, "Email Us", "info@epawatech.co.ke"],
                   [
                     MapPin,
                     "Visit Us",
@@ -929,17 +938,35 @@ function CBC() {
               </div>
             </div>
             <div className="rounded-3xl border border-primary/15 bg-card p-7 shadow-sm">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-                <GraduationCap size={28} />
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+                  <GraduationCap size={28} />
+                </div>
+                <span className="rounded-full bg-secondary px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-primary">
+                  7 competencies
+                </span>
               </div>
               <h2 className="mt-6 font-display text-2xl font-bold text-code-bg">
-                What CBC Focuses On
+                Skills learners carry into real life
               </h2>
               <p className="mt-4 leading-7 text-muted-foreground">
-                CBC focuses on what learners can do, not only what they know.
-                The goal is to connect classroom learning with practical,
-                creative, and useful outcomes.
+                CBC grows practical ability alongside knowledge, helping learners communicate, solve, create, act responsibly, use technology well, keep improving, and believe they can finish what they start.
               </p>
+              <div className="mt-6 grid gap-3">
+                {cbcCompetencies.map((item, index) => (
+                  <div key={item.title} className="rounded-2xl border border-border bg-background p-3">
+                    <div className="flex items-start gap-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <h3 className="text-sm font-bold text-code-bg">{item.title}</h3>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.text}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </section>
