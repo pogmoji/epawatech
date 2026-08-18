@@ -115,13 +115,14 @@ function failure<T>(message: string): AdminResult<T> {
 }
 
 const profileSelect = "id, full_name, username, phone_number, certificate_path, certificate_file_name, certificate_mime_type, certificate_file_size, certificate_uploaded_at, role, status, created_at";
+const adminSignedUrlTtlSeconds = 60 * 60 * 12;
 
 async function addTrainerCertificateUrls(trainers: ProfileRecord[]) {
   if (!supabase) return trainers;
   const client = supabase;
   return Promise.all(trainers.map(async (trainer) => {
     if (!trainer.certificate_path) return trainer;
-    const signed = await client.storage.from("trainer-certificates").createSignedUrl(trainer.certificate_path, 60 * 10);
+    const signed = await client.storage.from("trainer-certificates").createSignedUrl(trainer.certificate_path, adminSignedUrlTtlSeconds);
     return { ...trainer, signed_certificate_url: signed.data?.signedUrl };
   }));
 }
@@ -154,18 +155,18 @@ export async function getAdminDashboardData(): Promise<AdminResult<AdminDashboar
   const feedbackData = feedback.error ? [] : (feedback.data ?? []) as StudentFeedbackRecord[];
   const trainerReportsData = trainerReports.error ? [] : await Promise.all(((trainerReports.data ?? []) as TrainerAdminReportRecord[]).map(async (report) => {
     if (!report.attachment_path) return report;
-    const signed = await client.storage.from("trainer-report-attachments").createSignedUrl(report.attachment_path, 60 * 10);
+    const signed = await client.storage.from("trainer-report-attachments").createSignedUrl(report.attachment_path, adminSignedUrlTtlSeconds);
     return { ...report, signed_attachment_url: signed.data?.signedUrl };
   }));
   const weeklyTopicsData = weeklyTopics.error ? [] : (weeklyTopics.data ?? []) as WeeklyTopicRecord[];
   const weeklyTopicSubmissionsData = weeklyTopicSubmissions.error ? [] : await Promise.all(((weeklyTopicSubmissions.data ?? []) as TrainerWeeklyTopicSubmissionRecord[]).map(async (submission) => {
     if (!submission.file_path) return submission;
-    const signed = await client.storage.from("weekly-topic-submissions").createSignedUrl(submission.file_path, 60 * 10);
+    const signed = await client.storage.from("weekly-topic-submissions").createSignedUrl(submission.file_path, adminSignedUrlTtlSeconds);
     return { ...submission, signed_file_url: signed.data?.signedUrl };
   }));
   const classroomWeeklyReportsData = classroomWeeklyReports.error ? [] : await Promise.all(((classroomWeeklyReports.data ?? []) as ClassroomWeeklyReportRecord[]).map(async (report) => {
     if (!report.file_path) return report;
-    const signed = await client.storage.from("classroom-weekly-report-attachments").createSignedUrl(report.file_path, 60 * 10);
+    const signed = await client.storage.from("classroom-weekly-report-attachments").createSignedUrl(report.file_path, adminSignedUrlTtlSeconds);
     return { ...report, signed_file_url: signed.data?.signedUrl };
   }));
   const challengeLevelsData = challengeLevels.error ? [] : (challengeLevels.data ?? []) as ChallengeLevelRecord[];
@@ -490,6 +491,38 @@ export async function removeTrainerFromClassroom(input: { classroomId: string; t
   });
   if (error) return failure(error.message || "The trainer could not be removed from the classroom.");
   return { data: data as TrainerAssignment, error: null };
+}
+
+export async function updateClassroomDetails(input: {
+  classroomId: string;
+  classroomName: string;
+  classroomStatus: "pending" | "active" | "completed" | "archived";
+  cohortName: string;
+  cohortStatus: "planned" | "active" | "completed" | "cancelled";
+  cohortStartDate: string;
+  cohortEndDate: string;
+}): Promise<AdminResult<Classroom>> {
+  if (!supabase) return unavailable();
+  const { data, error } = await supabase.rpc("admin_update_classroom_details", {
+    p_classroom_id: input.classroomId,
+    p_classroom_name: input.classroomName.trim(),
+    p_classroom_status: input.classroomStatus,
+    p_cohort_name: input.cohortName.trim(),
+    p_cohort_status: input.cohortStatus,
+    p_cohort_start_date: input.cohortStartDate || null,
+    p_cohort_end_date: input.cohortEndDate || null,
+  });
+  if (error) return failure(error.message || "The classroom details could not be updated.");
+  return { data: data as Classroom, error: null };
+}
+
+export async function deleteClassroom(classroomId: string): Promise<AdminResult<boolean>> {
+  if (!supabase) return unavailable();
+  const { error } = await supabase.rpc("admin_delete_classroom", {
+    p_classroom_id: classroomId,
+  });
+  if (error) return failure(error.message || "The classroom could not be deleted.");
+  return { data: true, error: null };
 }
 
 export async function completeClassroom(classroomId: string): Promise<AdminResult<Classroom>> {

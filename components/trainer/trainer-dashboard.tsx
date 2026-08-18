@@ -19,6 +19,7 @@ import {
   FileText,
   GripVertical,
   HardHat,
+  KeyRound,
   LayoutDashboard,
   ListChecks,
   Lock,
@@ -81,6 +82,7 @@ type View =
   | "reports"
   | "weekly-report"
   | "weekly-topics"
+  | "account-tools"
   | "profile"
   | "contact";
 type CurriculumItem = {
@@ -106,6 +108,13 @@ type Module = {
   title: string;
   week: number;
   items: CurriculumItem[];
+};
+type ClassroomTrainerSummary = {
+  id: string;
+  name: string;
+  role: "lead" | "co_teacher";
+  status: string;
+  isCurrentTrainer: boolean;
 };
 
 export const activityLabels: Record<LessonActivity["type"], string> = {
@@ -318,6 +327,7 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "reports", label: "Reports", icon: BarChart3 },
   { id: "weekly-report", label: "Weekly Report", icon: ClipboardCheck },
   { id: "weekly-topics", label: "Weekly Inputs", icon: CalendarDays },
+  { id: "account-tools", label: "Account tools", icon: KeyRound },
   { id: "profile", label: "Profile", icon: User },
   { id: "contact", label: "Contact Admin", icon: Headset },
 ];
@@ -330,7 +340,8 @@ const emptyTypingSummary: TrainerTypingSummary = {
 };
 
 export default function TrainerDashboard() {
-  const { profile, signOut } = useAuth();
+  const { profile, session, signOut } = useAuth();
+  const accessToken = session?.access_token ?? "";
   const [trainerContext, setTrainerContext] = useState<TrainerClassroomContext | null>(null);
   const [classrooms, setClassrooms] = useState<TrainerClassroom[]>([]);
   const [classroomsLoading, setClassroomsLoading] = useState(true);
@@ -347,6 +358,7 @@ export default function TrainerDashboard() {
   const [attendanceSessions, setAttendanceSessions] = useState<AttendanceSessionSummary[]>([]);
   const [hardwareSessions, setHardwareSessions] = useState<HardwareSession[]>([]);
   const [typingSummary, setTypingSummary] = useState<TrainerTypingSummary>(emptyTypingSummary);
+  const [classroomTrainers, setClassroomTrainers] = useState<ClassroomTrainerSummary[]>([]);
   const [trainerProfileDetails, setTrainerProfileDetails] = useState<TrainerProfileDetails | null>(null);
   const [trainerProfileError, setTrainerProfileError] = useState("");
   const [awards, setAwards] = useState<
@@ -449,6 +461,8 @@ export default function TrainerDashboard() {
   const activeClassroom =
     classrooms.find((classroom) => classroom.id === activeClassroomId) ?? null;
   const primaryAssignment = trainerContext?.activeAssignments[0] ?? null;
+  const activeView = activeClassroom?.assignmentRole !== "lead" && view === "account-tools" ? "overview" : view;
+  const coTrainers = classroomTrainers.filter((trainer) => trainer.role !== "lead");
   const trainerName = profile?.full_name || "Trainer";
   const trainerInitials =
     profile?.full_name
@@ -457,6 +471,9 @@ export default function TrainerDashboard() {
       .join("")
       .slice(0, 2)
       .toUpperCase() || "T";
+  const visibleNav = activeClassroom?.assignmentRole === "lead"
+    ? nav
+    : nav.filter((item) => item.id !== "account-tools");
   const changeView = (next: View) => {
     setView(next);
     setMenuOpen(false);
@@ -477,6 +494,24 @@ export default function TrainerDashboard() {
     setJoinCode(result.data ?? "");
     setNotice("New classroom join code generated.");
   };
+
+  const loadClassroomTrainers = useCallback(async () => {
+    if (!activeClassroomId || activeClassroom?.assignmentRole !== "lead" || !accessToken) {
+      setClassroomTrainers([]);
+      return;
+    }
+
+    const response = await fetch(`/api/trainer/classroom-trainers?classroomId=${encodeURIComponent(activeClassroomId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const result = await response.json().catch(() => ({})) as { trainers?: ClassroomTrainerSummary[] };
+    setClassroomTrainers(response.ok ? result.trainers ?? [] : []);
+  }, [activeClassroomId, activeClassroom?.assignmentRole, accessToken]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadClassroomTrainers(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadClassroomTrainers]);
   if (classroomsLoading) {
     return <main className="flex min-h-screen items-center justify-center bg-background p-6 text-sm text-muted-foreground">Loading your teaching context...</main>;
   }
@@ -568,11 +603,11 @@ export default function TrainerDashboard() {
           Classroom tools
         </div>
         <nav className="mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
-          {nav.map(({ id, label, icon: Icon }) => (
+          {visibleNav.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => changeView(id)}
-              className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${view === id ? "bg-primary-foreground text-primary shadow-sm" : "text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground"}`}
+              className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${activeView === id ? "bg-primary-foreground text-primary shadow-sm" : "text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground"}`}
             >
               <Icon size={18} />
               {label}
@@ -584,6 +619,16 @@ export default function TrainerDashboard() {
           <p className="mt-1 text-xs text-primary-foreground/70">
             {activeClassroom.cohortName} · {activeClassroom.name}
           </p>
+          {activeClassroom.assignmentRole === "lead" && (
+            <div className="mt-3 rounded-xl border border-primary-foreground/15 bg-primary-foreground/10 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase tracking-[.14em] text-primary-foreground/55">Co-trainers</p>
+              <p className="mt-1 text-xs leading-5 text-primary-foreground/80">
+                {coTrainers.length
+                  ? coTrainers.map((trainer) => `${trainer.name}${trainer.status !== "active" ? ` (${trainer.status})` : ""}`).join(", ")
+                  : "No co-trainers assigned"}
+              </p>
+            </div>
+          )}
           {classrooms.length > 1 && (
             <label className="mt-3 block text-left text-xs font-bold">
               <span className="sr-only">Switch classroom</span>
@@ -656,7 +701,7 @@ export default function TrainerDashboard() {
             onRotate={handleRotateJoinCode}
             notify={setNotice}
           />
-          {view === "overview" && (
+          {activeView === "overview" && (
             <Overview
               go={changeView}
               activeLessons={activeLessons}
@@ -669,7 +714,7 @@ export default function TrainerDashboard() {
               typingSummary={typingSummary}
             />
           )}
-          {view === "curriculum" && (
+          {activeView === "curriculum" && (
             <Curriculum
               modules={modules}
               setModules={setModules}
@@ -678,7 +723,7 @@ export default function TrainerDashboard() {
               classroomName={activeClassroom.name}
             />
           )}
-          {view === "attendance" && (
+          {activeView === "attendance" && (
             <Attendance
               classroomId={activeClassroom.id}
               classroomName={activeClassroom.name}
@@ -690,8 +735,8 @@ export default function TrainerDashboard() {
               onChanged={loadDashboardData}
             />
           )}
-          {view === "homework" && <Homework classroomName={activeClassroom.name} />}
-          {view === "hardware" && (
+          {activeView === "homework" && <Homework classroomName={activeClassroom.name} />}
+          {activeView === "hardware" && (
             <Hardware
               classroomId={activeClassroom.id}
               classroomName={activeClassroom.name}
@@ -700,7 +745,7 @@ export default function TrainerDashboard() {
               onChanged={loadDashboardData}
             />
           )}
-          {view === "students" && (
+          {activeView === "students" && (
             <Students
               notify={setNotice}
               studentsList={studentsList}
@@ -709,7 +754,7 @@ export default function TrainerDashboard() {
               typingSummary={typingSummary}
             />
           )}
-          {view === "badges" && (
+          {activeView === "badges" && (
             <Badges
               awards={awards}
               setAwards={setAwards}
@@ -718,7 +763,7 @@ export default function TrainerDashboard() {
               classroomName={activeClassroom.name}
             />
           )}
-          {view === "reports" && (
+          {activeView === "reports" && (
             <Reports
               studentsList={studentsList}
               classroomName={activeClassroom.name}
@@ -726,9 +771,18 @@ export default function TrainerDashboard() {
               hardwareSessions={hardwareSessions}
             />
           )}
-          {view === "weekly-report" && <WeeklyReport classroom={activeClassroom} notify={setNotice} />}
-          {view === "weekly-topics" && <WeeklyTopics notify={setNotice} />}
-          {view === "profile" && (
+          {activeView === "weekly-report" && <WeeklyReport classroom={activeClassroom} notify={setNotice} />}
+          {activeView === "weekly-topics" && <WeeklyTopics notify={setNotice} />}
+          {activeView === "account-tools" && (
+            <StudentAccountTools
+              classroom={activeClassroom}
+              studentsList={studentsList}
+              accessToken={accessToken}
+              notify={setNotice}
+              onChanged={loadDashboardData}
+            />
+          )}
+          {activeView === "profile" && (
             <TrainerProfile
               key={trainerProfileDetails?.id ?? "loading"}
               details={trainerProfileDetails}
@@ -737,7 +791,7 @@ export default function TrainerDashboard() {
               onChanged={loadTrainerProfile}
             />
           )}
-          {view === "contact" && (
+          {activeView === "contact" && (
             <ContactAdmin
               classroomId={activeClassroom.id}
               classroomName={activeClassroom.name}
@@ -1141,9 +1195,7 @@ function Curriculum({
   classroomId: string;
   classroomName: string;
 }) {
-  const [expanded, setExpanded] = useState<string[]>(
-    modules.map((module) => module.id),
-  );
+  const [expanded, setExpanded] = useState<string[]>([]);
   const [addTo, setAddTo] = useState<string | null>(null);
   const [editing, setEditing] = useState<{
     moduleId: string;
@@ -1321,6 +1373,20 @@ function Curriculum({
       >
         <div className="flex flex-wrap gap-2">
           <button
+            onClick={() => setExpanded(modules.map((module) => module.id))}
+            className="rounded-xl border border-border px-3 py-2 text-sm font-bold hover:bg-muted"
+          >
+            <ChevronDown className="mr-1 inline" size={15} />
+            Open all
+          </button>
+          <button
+            onClick={() => setExpanded([])}
+            className="rounded-xl border border-border px-3 py-2 text-sm font-bold hover:bg-muted"
+          >
+            <ChevronRight className="mr-1 inline" size={15} />
+            Close all
+          </button>
+          <button
             onClick={() => setShowMaster(true)}
             className="rounded-xl border border-border px-3 py-2 text-sm font-bold hover:bg-muted"
           >
@@ -1376,28 +1442,30 @@ function Curriculum({
             key={module.id}
             className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
           >
-            <div className="flex items-center gap-3 p-4 sm:p-5">
+            <div className="flex flex-wrap items-center gap-3 p-4 sm:p-5">
               <GripVertical
                 className="hidden text-muted-foreground sm:block"
                 size={18}
               />
-              <button
-                onClick={() => toggle(module.id)}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-              >
+              <div className="min-w-0 flex-1">
                 <span className="rounded-lg bg-primary/10 px-2 py-1 text-xs font-bold text-primary">
                   Module {module.week}
                 </span>
-                {expanded.includes(module.id) ? (
-                  <ChevronDown size={18} />
-                ) : (
-                  <ChevronRight size={18} />
-                )}
-                <span className="truncate font-display text-lg font-bold">
+                <p className="mt-2 truncate font-display text-lg font-bold">
                   {module.title}
-                </span>
+                </p>
+                <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                  {module.items.filter((item) => !item.removed).length} item(s)
+                </p>
+              </div>
+              <button
+                onClick={() => toggle(module.id)}
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-primary bg-white px-3 text-xs font-bold text-primary shadow-sm hover:bg-primary/5"
+              >
+                {expanded.includes(module.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                {expanded.includes(module.id) ? "Hide lessons" : "Show lessons"}
               </button>
-              <div className="hidden gap-1 sm:flex">
+              <div className="flex gap-1">
                 <MiniButton
                   label="Move earlier"
                   onClick={() => void moveModule(moduleIndex, -1)}
@@ -3103,6 +3171,191 @@ function Hardware({
     </>
   );
 }
+
+function StudentAccountTools({
+  classroom,
+  studentsList,
+  accessToken,
+  notify,
+  onChanged,
+}: {
+  classroom: TrainerClassroom;
+  studentsList: StudentSummary[];
+  accessToken: string;
+  notify: (message: string) => void;
+  onChanged: () => Promise<void>;
+}) {
+  const [usernameStudentId, setUsernameStudentId] = useState(studentsList[0]?.id ?? "");
+  const [passwordStudentId, setPasswordStudentId] = useState(studentsList[0]?.id ?? "");
+  const effectiveUsernameStudentId = studentsList.some((student) => student.id === usernameStudentId) ? usernameStudentId : (studentsList[0]?.id ?? "");
+  const effectivePasswordStudentId = studentsList.some((student) => student.id === passwordStudentId) ? passwordStudentId : (studentsList[0]?.id ?? "");
+  const selectedUsernameStudent = studentsList.find((student) => student.id === effectiveUsernameStudentId) ?? null;
+  const [newUsername, setNewUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [usernameError, setUsernameError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [usernameBusy, setUsernameBusy] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const displayedUsername = newUsername || (selectedUsernameStudent?.username ?? "");
+
+  async function submitUsername(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setUsernameError("");
+    const usernameToSave = displayedUsername.trim();
+    if (classroom.assignmentRole !== "lead") return setUsernameError("Only the Lead Trainer can update student accounts.");
+    if (!accessToken) return setUsernameError("Your session has expired. Please sign in again.");
+    if (!effectiveUsernameStudentId) return setUsernameError("Choose a student.");
+    if (!usernameToSave) return setUsernameError("Enter the new username.");
+
+    setUsernameBusy(true);
+    const response = await fetch("/api/trainer/student-account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({
+        classroomId: classroom.id,
+        studentId: effectiveUsernameStudentId,
+        username: usernameToSave,
+      }),
+    });
+    const result = await response.json().catch(() => ({})) as { error?: string };
+    setUsernameBusy(false);
+    if (!response.ok) {
+      setUsernameError(result.error || "The student username could not be updated.");
+      return;
+    }
+    setNewUsername("");
+    notify("Student username updated.");
+    await onChanged();
+  }
+
+  async function submitPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordError("");
+    if (classroom.assignmentRole !== "lead") return setPasswordError("Only the Lead Trainer can update student accounts.");
+    if (!accessToken) return setPasswordError("Your session has expired. Please sign in again.");
+    if (!effectivePasswordStudentId) return setPasswordError("Choose a student.");
+    if (password.length < 6) return setPasswordError("Use a password of at least 6 characters.");
+    if (password !== confirmPassword) return setPasswordError("The passwords do not match.");
+
+    setPasswordBusy(true);
+    const response = await fetch("/api/trainer/student-account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({
+        classroomId: classroom.id,
+        studentId: effectivePasswordStudentId,
+        password,
+      }),
+    });
+    const result = await response.json().catch(() => ({})) as { error?: string };
+    setPasswordBusy(false);
+    if (!response.ok) {
+      setPasswordError(result.error || "The student password could not be updated.");
+      return;
+    }
+    setPassword("");
+    setConfirmPassword("");
+    notify("Student password updated.");
+    await onChanged();
+  }
+
+  return (
+    <>
+      <PageHeading eyebrow={`${classroom.name} · lead trainer`} title="Account tools" />
+      <Card>
+        {classroom.assignmentRole !== "lead" ? (
+          <p className="rounded-xl bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+            Only the active Lead Trainer can change student usernames and passwords.
+          </p>
+        ) : studentsList.length ? (
+          <div className="grid gap-5 xl:grid-cols-2">
+            <form onSubmit={submitUsername} className="rounded-2xl border border-border bg-background p-4">
+              <h3 className="font-display text-lg font-bold">Change username</h3>
+              <div className="mt-4 space-y-4">
+                <label className="block text-sm font-bold">
+                  Student
+                  <select
+                    value={effectiveUsernameStudentId}
+                    onChange={(event) => {
+                      setUsernameStudentId(event.target.value);
+                      setNewUsername("");
+                      setUsernameError("");
+                    }}
+                    className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal"
+                  >
+                    {studentsList.map((student) => (
+                      <option key={student.id} value={student.id}>
+                        {student.name}{student.username ? ` · ${student.username}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm font-bold">
+                  Username
+                  <input
+                    value={displayedUsername}
+                    onChange={(event) => setNewUsername(event.target.value)}
+                    placeholder="Student username"
+                    className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal"
+                  />
+                </label>
+                {usernameError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{usernameError}</p>}
+                <button disabled={usernameBusy} type="submit" className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-60">
+                  <User size={16} />
+                  {usernameBusy ? "Saving..." : "Save username"}
+                </button>
+              </div>
+            </form>
+
+            <form onSubmit={submitPassword} className="rounded-2xl border border-border bg-background p-4">
+              <h3 className="font-display text-lg font-bold">Reset password</h3>
+              <div className="mt-4 space-y-4">
+                <label className="block text-sm font-bold">
+                  Student
+                  <select
+                    value={effectivePasswordStudentId}
+                    onChange={(event) => {
+                      setPasswordStudentId(event.target.value);
+                      setPassword("");
+                      setConfirmPassword("");
+                      setPasswordError("");
+                    }}
+                    className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal"
+                  >
+                    {studentsList.map((student) => (
+                      <option key={student.id} value={student.id}>
+                        {student.name}{student.username ? ` · ${student.username}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm font-bold">
+                  New password
+                  <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" minLength={6} placeholder="New password" autoComplete="new-password" className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal" />
+                </label>
+                <label className="block text-sm font-bold">
+                  Confirm new password
+                  <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" minLength={6} placeholder="Confirm new password" autoComplete="new-password" className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal" />
+                </label>
+                {passwordError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{passwordError}</p>}
+                <button disabled={passwordBusy} type="submit" className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-60">
+                  <KeyRound size={16} />
+                  {passwordBusy ? "Saving..." : "Reset password"}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : (
+          <p className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
+            No active students are enrolled in this classroom yet.
+          </p>
+        )}
+      </Card>
+    </>
+  );
+}
+
 function Students({
   notify,
   studentsList,

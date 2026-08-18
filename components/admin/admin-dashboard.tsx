@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Archive, BookOpen, Building2, CalendarDays, Check, ClipboardCheck, ClipboardList, Eye, FileText, GraduationCap, LayoutDashboard, Menu, MessageSquareText, Plus, School, Trash2, Trophy, Users, X } from "lucide-react";
+import { Archive, BookOpen, Building2, CalendarDays, Check, ChevronDown, ChevronUp, ClipboardCheck, ClipboardList, Eye, FileText, GraduationCap, LayoutDashboard, Mail, Menu, MessageSquareText, Plus, School, Trash2, Trophy, Users, X } from "lucide-react";
 import {
   activateClassroom,
   archiveClassroom,
@@ -13,11 +13,13 @@ import {
   createCohort,
   createUniversalChallenge,
   createWeeklyTopic,
+  deleteClassroom,
   getAdminDashboardData,
   markClassroomWeeklyReportReviewed,
   markWeeklyTopicSubmissionReviewed,
   reassignTrainerToClassroom,
   removeTrainerFromClassroom,
+  updateClassroomDetails,
   updateTrainerAdminReportStatus,
   updateTrainerStatus,
   updateUniversalChallenge,
@@ -45,6 +47,17 @@ import { ActivityEditor, ActivityPlayground, activityInstruction, activityLabels
 type View = "overview" | "centres" | "cohorts" | "trainers" | "classrooms" | "students" | "master-curriculum" | "trainer-reports" | "weekly-topics" | "weekly-reports" | "challenges" | "feedback" | "activity";
 type AssignmentRole = "lead" | "co_teacher";
 type ClassroomStatus = "pending" | "active";
+type EditableClassroomStatus = "pending" | "active" | "completed" | "archived";
+type EditableCohortStatus = "planned" | "active" | "completed" | "cancelled";
+
+type ClassroomEditDraft = {
+  classroomName: string;
+  classroomStatus: EditableClassroomStatus;
+  cohortName: string;
+  cohortStatus: EditableCohortStatus;
+  cohortStartDate: string;
+  cohortEndDate: string;
+};
 
 type DashboardMaps = {
   centres: Map<string, Centre>;
@@ -101,10 +114,12 @@ function currentWeekNumber() {
 }
 
 export function AdminDashboard() {
-  const { profile, signOut } = useAuth();
+  const { profile, session, signOut } = useAuth();
+  const accessToken = session?.access_token;
   const [view, setView] = useState<View>("overview");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
+  const [trainerEmails, setTrainerEmails] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -121,6 +136,8 @@ export function AdminDashboard() {
   const [cohortTrainer, setCohortTrainer] = useState("");
   const [trainerCohort, setTrainerCohort] = useState("");
   const [trainerCohortRole, setTrainerCohortRole] = useState<AssignmentRole>("lead");
+  const [emailEditingTrainerId, setEmailEditingTrainerId] = useState<string | null>(null);
+  const [trainerEmailDraft, setTrainerEmailDraft] = useState("");
 
   const [classroomCentre, setClassroomCentre] = useState("");
   const [classroomCohort, setClassroomCohort] = useState("");
@@ -128,6 +145,8 @@ export function AdminDashboard() {
   const [classroomStatus, setClassroomStatus] = useState<ClassroomStatus>("pending");
   const [classroomTrainer, setClassroomTrainer] = useState("");
   const [classroomTrainerSelections, setClassroomTrainerSelections] = useState<Record<string, string>>({});
+  const [editingClassroomId, setEditingClassroomId] = useState<string | null>(null);
+  const [classroomEditDraft, setClassroomEditDraft] = useState<ClassroomEditDraft | null>(null);
   const [challengeEditingId, setChallengeEditingId] = useState<string | null>(null);
   const [challengeLevel, setChallengeLevel] = useState("");
   const [challengeTitle, setChallengeTitle] = useState("");
@@ -158,7 +177,16 @@ export function AdminDashboard() {
     }
     setDashboard(result.data);
     setError("");
-  }, []);
+    if (!accessToken) {
+      setTrainerEmails({});
+      return;
+    }
+    const response = await fetch("/api/admin/trainer-email", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const emailResult = await response.json().catch(() => ({})) as { emails?: Record<string, string>; error?: string };
+    if (response.ok) setTrainerEmails(emailResult.emails ?? {});
+  }, [accessToken]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void load(); }, 0);
@@ -234,6 +262,36 @@ export function AdminDashboard() {
     await runAdminAction(() => updateTrainerStatus(id, status), `Trainer ${status === "active" ? "approved" : "rejected"}.`);
   }
 
+  function startTrainerEmailEdit(trainerId: string) {
+    setEmailEditingTrainerId(trainerId);
+    setTrainerEmailDraft(trainerEmails[trainerId] ?? "");
+  }
+
+  async function submitTrainerEmail(trainerId: string) {
+    const email = trainerEmailDraft.trim().toLowerCase();
+    if (!email) return setError("Enter the trainer's email address.");
+    if (!accessToken) return setError("Your admin session has expired. Please sign in again.");
+
+    setBusy(true);
+    setError("");
+    setNotice("");
+    const response = await fetch("/api/admin/trainer-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ trainerId, email }),
+    });
+    const result = await response.json().catch(() => ({})) as { email?: string; error?: string };
+    setBusy(false);
+    if (!response.ok) {
+      setError(result.error || "The trainer email could not be updated.");
+      return;
+    }
+    setTrainerEmails((current) => ({ ...current, [trainerId]: result.email ?? email }));
+    setEmailEditingTrainerId(null);
+    setTrainerEmailDraft("");
+    setNotice("Trainer email updated.");
+  }
+
   async function submitTrainerCohort(event: FormEvent) {
     event.preventDefault();
     if (!cohortTrainer || !trainerCohort) return setError("Choose an active trainer and a cohort.");
@@ -301,6 +359,56 @@ export function AdminDashboard() {
       () => removeTrainerFromClassroom({ classroomId: room.id, trainerId }),
       "Trainer removed from classroom.",
     );
+  }
+
+  function startClassroomEdit(room: Classroom) {
+    const cohort = maps.cohorts.get(room.cohort_id);
+    setEditingClassroomId(room.id);
+    setClassroomEditDraft({
+      classroomName: room.name,
+      classroomStatus: room.status as EditableClassroomStatus,
+      cohortName: cohort?.name ?? "",
+      cohortStatus: (cohort?.status ?? "planned") as EditableCohortStatus,
+      cohortStartDate: cohort?.start_date ?? "",
+      cohortEndDate: cohort?.end_date ?? "",
+    });
+  }
+
+  function updateClassroomEditDraft(patch: Partial<ClassroomEditDraft>) {
+    setClassroomEditDraft((current) => current ? { ...current, ...patch } : current);
+  }
+
+  async function submitClassroomEdit(room: Classroom) {
+    if (!classroomEditDraft) return;
+    if (!classroomEditDraft.classroomName.trim() || !classroomEditDraft.cohortName.trim()) {
+      return setError("Enter both classroom and cohort names.");
+    }
+    const result = await runAdminAction(
+      () => updateClassroomDetails({
+        classroomId: room.id,
+        classroomName: classroomEditDraft.classroomName,
+        classroomStatus: classroomEditDraft.classroomStatus,
+        cohortName: classroomEditDraft.cohortName,
+        cohortStatus: classroomEditDraft.cohortStatus,
+        cohortStartDate: classroomEditDraft.cohortStartDate,
+        cohortEndDate: classroomEditDraft.cohortEndDate,
+      }),
+      "Classroom details updated.",
+    );
+    if (result) {
+      setEditingClassroomId(null);
+      setClassroomEditDraft(null);
+    }
+  }
+
+  async function removeClassroom(room: Classroom) {
+    const confirmed = window.confirm(`Delete ${room.name}? This permanently removes the classroom, its trainer assignments, and student enrollments.`);
+    if (!confirmed) return;
+    const result = await runAdminAction(() => deleteClassroom(room.id), "Classroom deleted.");
+    if (result) {
+      setEditingClassroomId(null);
+      setClassroomEditDraft(null);
+    }
   }
 
   async function updateTrainerReportStatus(report: TrainerAdminReportRecord, status: "reviewed" | "resolved") {
@@ -497,12 +605,26 @@ export function AdminDashboard() {
               onCentreSubmit={submitCentre}
               onCohortSubmit={submitCohort}
               onReviewTrainer={reviewTrainer}
+              trainerEmails={trainerEmails}
+              emailEditingTrainerId={emailEditingTrainerId}
+              trainerEmailDraft={trainerEmailDraft}
+              setTrainerEmailDraft={setTrainerEmailDraft}
+              onStartTrainerEmailEdit={startTrainerEmailEdit}
+              onCancelTrainerEmailEdit={() => { setEmailEditingTrainerId(null); setTrainerEmailDraft(""); }}
+              onSubmitTrainerEmail={submitTrainerEmail}
               onTrainerCohortSubmit={submitTrainerCohort}
               onClassroomSubmit={submitClassroom}
               onActivate={activate}
               onAssignClassroomTrainer={assignClassroomTrainer}
               onMakeLeadTrainer={makeLeadTrainer}
               onRemoveClassroomTrainer={removeClassroomTrainer}
+              editingClassroomId={editingClassroomId}
+              classroomEditDraft={classroomEditDraft}
+              onStartClassroomEdit={startClassroomEdit}
+              onCancelClassroomEdit={() => { setEditingClassroomId(null); setClassroomEditDraft(null); }}
+              onClassroomEditDraft={updateClassroomEditDraft}
+              onSubmitClassroomEdit={submitClassroomEdit}
+              onDeleteClassroom={removeClassroom}
               onComplete={complete}
               onArchive={archive}
               onTrainerReportStatus={updateTrainerReportStatus}
@@ -606,12 +728,26 @@ type ContentProps = {
   onCentreSubmit: (event: FormEvent) => Promise<void>;
   onCohortSubmit: (event: FormEvent) => Promise<void>;
   onReviewTrainer: (id: string, status: "active" | "rejected") => Promise<void>;
+  trainerEmails: Record<string, string>;
+  emailEditingTrainerId: string | null;
+  trainerEmailDraft: string;
+  setTrainerEmailDraft: (value: string) => void;
+  onStartTrainerEmailEdit: (trainerId: string) => void;
+  onCancelTrainerEmailEdit: () => void;
+  onSubmitTrainerEmail: (trainerId: string) => Promise<void>;
   onTrainerCohortSubmit: (event: FormEvent) => Promise<void>;
   onClassroomSubmit: (event: FormEvent) => Promise<void>;
   onActivate: (id: string) => Promise<void>;
   onAssignClassroomTrainer: (room: Classroom, currentLeadId: string | null) => Promise<void>;
   onMakeLeadTrainer: (room: Classroom, trainerId: string) => Promise<void>;
   onRemoveClassroomTrainer: (room: Classroom, trainerId: string) => Promise<void>;
+  editingClassroomId: string | null;
+  classroomEditDraft: ClassroomEditDraft | null;
+  onStartClassroomEdit: (room: Classroom) => void;
+  onCancelClassroomEdit: () => void;
+  onClassroomEditDraft: (patch: Partial<ClassroomEditDraft>) => void;
+  onSubmitClassroomEdit: (room: Classroom) => Promise<void>;
+  onDeleteClassroom: (room: Classroom) => Promise<void>;
   onComplete: (id: string) => Promise<void>;
   onArchive: (id: string) => Promise<void>;
   onTrainerReportStatus: (report: TrainerAdminReportRecord, status: "reviewed" | "resolved") => Promise<void>;
@@ -690,10 +826,77 @@ function CohortsView(p: ContentProps) {
 }
 
 function TrainersView(p: ContentProps) {
-  return <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"><ListCard title="Trainer accounts" empty="No trainer accounts found.">{p.dashboard.trainers.map((trainer) => <div key={trainer.id} className="border-b border-slate-100 py-4 last:border-0"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">{trainer.full_name || "Unnamed trainer"}</p><p className="mt-1 text-sm text-muted-foreground">{trainer.phone_number || "No phone"} · {p.dashboard.assignments.filter((assignment) => assignment.trainer_id === trainer.id && assignment.status === "active").length} active assignment(s)</p></div><div className="flex items-center gap-2"><Status value={trainer.status} />{trainer.status === "pending" && <><button disabled={p.busy} onClick={() => void p.onReviewTrainer(trainer.id, "active")} className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Approve</button><button disabled={p.busy} onClick={() => void p.onReviewTrainer(trainer.id, "rejected")} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">Reject</button></>}</div></div><div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Verification certificate</p>{trainer.certificate_file_name ? <div className="mt-2 flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800"><FileText className="mr-1 inline size-4 text-primary" />{trainer.certificate_file_name}</p><p className="mt-1 text-xs text-muted-foreground">{trainer.certificate_file_size ? `${Math.ceil(trainer.certificate_file_size / 1024)} KB` : "PDF"} · Uploaded {formatDate(trainer.certificate_uploaded_at)}</p></div>{trainer.signed_certificate_url ? <a href={trainer.signed_certificate_url} target="_blank" rel="noreferrer" className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-primary shadow-sm hover:underline">View PDF</a> : <span className="text-xs text-muted-foreground">Unavailable</span>}</div> : <p className="mt-2 text-sm text-muted-foreground">No certificate uploaded yet.</p>}</div></div>)}</ListCard><FormCard title="Assign trainer to cohort" onSubmit={p.onTrainerCohortSubmit} busy={p.busy} button="Assign trainer"><select value={p.cohortTrainer} onChange={(event) => p.setCohortTrainer(event.target.value)} className="input"><option value="">Choose active trainer</option>{p.activeTrainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.full_name || "Unnamed trainer"}</option>)}</select><select value={p.trainerCohort} onChange={(event) => p.setTrainerCohort(event.target.value)} className="input"><option value="">Choose cohort</option>{p.dashboard.cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{p.maps.centres.get(cohort.centre_id)?.name || "Centre"} / {cohort.name}</option>)}</select><select value={p.trainerCohortRole} onChange={(event) => p.setTrainerCohortRole(event.target.value as AssignmentRole)} className="input"><option value="lead">Lead trainer</option><option value="co_teacher">Co-teacher</option></select></FormCard></div>;
+  const [expandedTrainerIds, setExpandedTrainerIds] = useState<Record<string, boolean>>({});
+
+  return <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"><ListCard title="Trainer accounts" empty="No trainer accounts found.">{p.dashboard.trainers.map((trainer) => {
+    const editingEmail = p.emailEditingTrainerId === trainer.id;
+    const email = p.trainerEmails[trainer.id];
+    const expanded = Boolean(expandedTrainerIds[trainer.id]);
+    const ExpandIcon = expanded ? ChevronUp : ChevronDown;
+    return (
+      <div key={trainer.id} className="border-b border-slate-100 py-4 last:border-0">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="font-semibold">{trainer.full_name || "Unnamed trainer"}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{trainer.phone_number || "No phone"} · {p.dashboard.assignments.filter((assignment) => assignment.trainer_id === trainer.id && assignment.status === "active").length} active assignment(s)</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Status value={trainer.status} />
+            {trainer.status === "pending" && <>
+              <button disabled={p.busy} onClick={() => void p.onReviewTrainer(trainer.id, "active")} className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Approve</button>
+              <button disabled={p.busy} onClick={() => void p.onReviewTrainer(trainer.id, "rejected")} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">Reject</button>
+            </>}
+            <button
+              type="button"
+              onClick={() => setExpandedTrainerIds((current) => ({ ...current, [trainer.id]: !current[trainer.id] }))}
+              className="rounded-lg border border-slate-200 bg-white p-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              aria-label={expanded ? "Hide trainer documents" : "Show trainer documents"}
+              aria-expanded={expanded}
+            >
+              <ExpandIcon className="size-4" />
+            </button>
+          </div>
+        </div>
+
+        {expanded && (
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Login email</p>
+              {editingEmail ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <input value={p.trainerEmailDraft} onChange={(event) => p.setTrainerEmailDraft(event.target.value)} type="email" className="h-9 min-w-64 flex-1 rounded-lg border border-border bg-white px-3 text-sm" placeholder="trainer@example.com" />
+                  <button disabled={p.busy} onClick={() => void p.onSubmitTrainerEmail(trainer.id)} className="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Save</button>
+                  <button disabled={p.busy} onClick={p.onCancelTrainerEmailEdit} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Cancel</button>
+                </div>
+              ) : (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                  <p className="min-w-0 truncate text-sm text-slate-700"><Mail className="mr-1 inline size-4 text-primary" />{email || "Email unavailable"}</p>
+                  <button disabled={p.busy} onClick={() => p.onStartTrainerEmailEdit(trainer.id)} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-primary shadow-sm disabled:opacity-50">Edit email</button>
+                </div>
+              )}
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Verification certificate</p>
+              {trainer.certificate_file_name ? (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-800"><FileText className="mr-1 inline size-4 text-primary" />{trainer.certificate_file_name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{trainer.certificate_file_size ? `${Math.ceil(trainer.certificate_file_size / 1024)} KB` : "PDF"} · Uploaded {formatDate(trainer.certificate_uploaded_at)}</p>
+                  </div>
+                  {trainer.signed_certificate_url ? <a href={trainer.signed_certificate_url} target="_blank" rel="noreferrer" className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-primary shadow-sm hover:underline">View PDF</a> : <span className="text-xs text-muted-foreground">Unavailable</span>}
+                </div>
+              ) : <p className="mt-2 text-sm text-muted-foreground">No certificate uploaded yet.</p>}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  })}</ListCard><FormCard title="Assign trainer to cohort" onSubmit={p.onTrainerCohortSubmit} busy={p.busy} button="Assign trainer"><select value={p.cohortTrainer} onChange={(event) => p.setCohortTrainer(event.target.value)} className="input"><option value="">Choose active trainer</option>{p.activeTrainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.full_name || "Unnamed trainer"}</option>)}</select><select value={p.trainerCohort} onChange={(event) => p.setTrainerCohort(event.target.value)} className="input"><option value="">Choose cohort</option>{p.dashboard.cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{p.maps.centres.get(cohort.centre_id)?.name || "Centre"} / {cohort.name}</option>)}</select><select value={p.trainerCohortRole} onChange={(event) => p.setTrainerCohortRole(event.target.value as AssignmentRole)} className="input"><option value="lead">Lead trainer</option><option value="co_teacher">Co-teacher</option></select></FormCard></div>;
 }
 
 function ClassroomsView(p: ContentProps) {
+  const [expandedClassroomTrainerIds, setExpandedClassroomTrainerIds] = useState<Record<string, boolean>>({});
+
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
       <ListCard title="Classroom lifecycle" empty="No classrooms have been created yet.">
@@ -710,6 +913,10 @@ function ClassroomsView(p: ContentProps) {
             ? p.eligibleTrainersForCohort(cohort.id).filter((trainer) => !assignedTrainerIds.has(trainer.id))
             : [];
           const selectedTrainer = p.classroomTrainerSelections[room.id] ?? "";
+          const isEditing = p.editingClassroomId === room.id;
+          const editDraft = isEditing ? p.classroomEditDraft : null;
+          const trainersExpanded = Boolean(expandedClassroomTrainerIds[room.id]);
+          const ClassroomTrainerIcon = trainersExpanded ? ChevronUp : ChevronDown;
 
           return (
             <div key={room.id} className="space-y-4 border-b border-slate-100 py-4 last:border-0">
@@ -730,45 +937,115 @@ function ClassroomsView(p: ContentProps) {
                 </p>
               </div>
 
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
-                  Classroom trainers
-                </p>
-                <div className="mt-2 space-y-2">
-                  {classroomAssignments.length ? classroomAssignments.map((assignment) => {
-                    const trainer = p.maps.profiles.get(assignment.trainer_id);
-                    const isLead = assignment.role === "lead";
-                    return (
-                      <div key={assignment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2">
-                        <div>
-                          <p className="text-sm font-semibold">{trainer?.full_name || "Unknown trainer"}</p>
-                          <p className="text-xs text-muted-foreground">{isLead ? "Lead Trainer" : "Classroom trainer"} · {assignment.status}</p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {!isLead && room.status !== "archived" && (
-                            <button disabled={p.busy} onClick={() => void p.onMakeLeadTrainer(room, assignment.trainer_id)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50">
-                              Make Lead
-                            </button>
-                          )}
-                          {room.status !== "archived" && (
-                            <button disabled={p.busy} onClick={() => void p.onRemoveClassroomTrainer(room, assignment.trainer_id)} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 disabled:opacity-50">
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  }) : (
-                    <p className="text-sm text-muted-foreground">No classroom trainers assigned yet.</p>
-                  )}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Classroom trainers</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{classroomAssignments.length} assigned</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setExpandedClassroomTrainerIds((current) => ({ ...current, [room.id]: !current[room.id] }))}
+                  className="rounded-lg border border-slate-200 bg-white p-2 text-slate-700 shadow-sm hover:bg-slate-50"
+                  aria-label={trainersExpanded ? "Hide classroom trainers" : "Show classroom trainers"}
+                  aria-expanded={trainersExpanded}
+                >
+                  <ClassroomTrainerIcon className="size-4" />
+                </button>
               </div>
+
+              {trainersExpanded && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="space-y-2">
+                    {classroomAssignments.length ? classroomAssignments.map((assignment) => {
+                      const trainer = p.maps.profiles.get(assignment.trainer_id);
+                      const isLead = assignment.role === "lead";
+                      return (
+                        <div key={assignment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2">
+                          <div>
+                            <p className="text-sm font-semibold">{trainer?.full_name || "Unknown trainer"}</p>
+                            <p className="text-xs text-muted-foreground">{isLead ? "Lead Trainer" : "Classroom trainer"} · {assignment.status}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {!isLead && room.status !== "archived" && (
+                              <button disabled={p.busy} onClick={() => void p.onMakeLeadTrainer(room, assignment.trainer_id)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50">
+                                Make Lead
+                              </button>
+                            )}
+                            {room.status !== "archived" && (
+                              <button disabled={p.busy} onClick={() => void p.onRemoveClassroomTrainer(room, assignment.trainer_id)} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 disabled:opacity-50">
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }) : (
+                      <p className="text-sm text-muted-foreground">No classroom trainers assigned yet.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {editDraft && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                    Edit classroom
+                  </p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <label className="text-xs font-bold text-slate-600">
+                      Classroom name
+                      <input value={editDraft.classroomName} onChange={(event) => p.onClassroomEditDraft({ classroomName: event.target.value })} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm font-normal" />
+                    </label>
+                    <label className="text-xs font-bold text-slate-600">
+                      Classroom status
+                      <select value={editDraft.classroomStatus} onChange={(event) => p.onClassroomEditDraft({ classroomStatus: event.target.value as EditableClassroomStatus })} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm font-normal">
+                        <option value="pending">Pending</option>
+                        <option value="active">Active</option>
+                        <option value="completed">Completed</option>
+                        <option value="archived">Archived</option>
+                      </select>
+                    </label>
+                    <label className="text-xs font-bold text-slate-600">
+                      Cohort name
+                      <input value={editDraft.cohortName} onChange={(event) => p.onClassroomEditDraft({ cohortName: event.target.value })} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm font-normal" />
+                    </label>
+                    <label className="text-xs font-bold text-slate-600">
+                      Cohort status
+                      <select value={editDraft.cohortStatus} onChange={(event) => p.onClassroomEditDraft({ cohortStatus: event.target.value as EditableCohortStatus })} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm font-normal">
+                        <option value="planned">Planned</option>
+                        <option value="active">Active</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </label>
+                    <label className="text-xs font-bold text-slate-600">
+                      Cohort start
+                      <input type="date" value={editDraft.cohortStartDate} onChange={(event) => p.onClassroomEditDraft({ cohortStartDate: event.target.value })} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm font-normal" />
+                    </label>
+                    <label className="text-xs font-bold text-slate-600">
+                      Cohort end
+                      <input type="date" value={editDraft.cohortEndDate} onChange={(event) => p.onClassroomEditDraft({ cohortEndDate: event.target.value })} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm font-normal" />
+                    </label>
+                  </div>
+                  <div className="mt-4 flex flex-wrap justify-end gap-2">
+                    <button disabled={p.busy} onClick={p.onCancelClassroomEdit} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">
+                      Cancel
+                    </button>
+                    <button disabled={p.busy} onClick={() => void p.onSubmitClassroomEdit(room)} className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+                      Save changes
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center gap-2">
                 <select value={selectedTrainer} onChange={(event) => p.setClassroomTrainerSelections({ ...p.classroomTrainerSelections, [room.id]: event.target.value })} className="h-9 min-w-48 rounded-lg border border-border bg-background px-2 text-xs">
                   <option value="">Choose cohort trainer</option>
                   {eligible.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.full_name || "Unnamed trainer"}</option>)}
                 </select>
+                <button disabled={p.busy} onClick={() => p.onStartClassroomEdit(room)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">
+                  Edit
+                </button>
                 {room.status === "pending" && (
                   <button disabled={p.busy} onClick={() => void p.onActivate(room.id)} className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
                     <Check className="mr-1 inline size-3" />Activate
@@ -785,6 +1062,9 @@ function ClassroomsView(p: ContentProps) {
                     <Archive className="mr-1 inline size-3" />Archive
                   </button>
                 )}
+                <button disabled={p.busy} onClick={() => void p.onDeleteClassroom(room)} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">
+                  <Trash2 className="mr-1 inline size-3" />Delete
+                </button>
               </div>
             </div>
           );

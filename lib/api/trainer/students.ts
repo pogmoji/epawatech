@@ -5,6 +5,7 @@ import { TrainerResult } from "./classrooms";
 export type StudentSummary = {
   id: string;
   name: string;
+  username: string | null;
   initials: string;
   enrollmentStatus: string;
   attendanceSummary: string;
@@ -136,6 +137,7 @@ export async function getTrainerClassroomStudents(classroomId: string): Promise<
     return {
       id: enrollment.student_id,
       name: fullName,
+      username: profile?.username ?? null,
       initials,
       enrollmentStatus: enrollment.status,
       attendanceSummary: attendancePercent === null ? "No attendance yet" : `${attendancePercent}%`,
