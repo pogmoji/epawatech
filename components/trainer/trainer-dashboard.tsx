@@ -52,6 +52,7 @@ import { AiChat } from "@/components/learn/ai-chat";
 import { WokwiEmbed, YouTubeEmbed } from "@/components/learn/external-embeds";
 import { useAuth } from "@/components/auth-provider";
 import { BrandLogo } from "@/components/brand-logo";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   getTrainerClassroomContext,
   rotateClassroomJoinCode,
@@ -69,6 +70,7 @@ import { createTrainerAdminReport, getMyTrainerAdminReports, type TrainerAdminRe
 import { getTrainerWeeklyTopics, submitWeeklyTopicResponse, type TrainerWeeklyTopicSubmission, type WeeklyTopic } from "@/lib/api/trainer/weekly-topics";
 import { getClassroomWeeklyReports, submitClassroomWeeklyReport, type ClassroomWeeklyReport } from "@/lib/api/trainer/weekly-reports";
 import { getMyTrainerProfile, removeMyTrainerCertificate, updateMyTrainerProfile, uploadMyTrainerCertificate, validateTrainerCertificate, type TrainerProfileDetails } from "@/lib/api/trainer/profile";
+import { getTrainerMoodCheckins, type StudentMood, type TrainerMoodCheckin } from "@/lib/api/trainer/mood";
 import type { TypingAttempt } from "@/lib/api/student/typing";
 
 type View =
@@ -80,6 +82,7 @@ type View =
   | "students"
   | "badges"
   | "reports"
+  | "wellbeing"
   | "weekly-report"
   | "weekly-topics"
   | "account-tools"
@@ -332,6 +335,44 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "contact", label: "Contact Admin", icon: Headset },
 ];
 
+function dateInputValue(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function displayDateValue(value: string) {
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) return "dd/mm/yyyy";
+  return `${day}/${month}/${year}`;
+}
+
+function dateParts(value: string) {
+  const [year, month, day] = value.split("-");
+  return {
+    year: Number(year) || new Date().getFullYear(),
+    month: Number(month) || 1,
+    day: Number(day) || 1,
+  };
+}
+
+function daysInMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate();
+}
+
+function dateValueFromParts(year: number, month: number, day: number) {
+  const safeDay = Math.min(day, daysInMonth(year, month));
+  return `${year}-${String(month).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
+}
+
+function shiftDateValue(value: string, days: number) {
+  const { year, month, day } = dateParts(value);
+  const nextDate = new Date(year, month - 1, day);
+  nextDate.setDate(nextDate.getDate() + days);
+  return dateInputValue(nextDate);
+}
+
 const emptyTypingSummary: TrainerTypingSummary = {
   byStudent: {},
   classAverageWpm: null,
@@ -358,6 +399,7 @@ export default function TrainerDashboard() {
   const [attendanceSessions, setAttendanceSessions] = useState<AttendanceSessionSummary[]>([]);
   const [hardwareSessions, setHardwareSessions] = useState<HardwareSession[]>([]);
   const [typingSummary, setTypingSummary] = useState<TrainerTypingSummary>(emptyTypingSummary);
+  const [sadMoodCheckins, setSadMoodCheckins] = useState<TrainerMoodCheckin[]>([]);
   const [classroomTrainers, setClassroomTrainers] = useState<ClassroomTrainerSummary[]>([]);
   const [trainerProfileDetails, setTrainerProfileDetails] = useState<TrainerProfileDetails | null>(null);
   const [trainerProfileError, setTrainerProfileError] = useState("");
@@ -400,11 +442,12 @@ export default function TrainerDashboard() {
       setAttendanceSessions([]);
       setHardwareSessions([]);
       setTypingSummary(emptyTypingSummary);
+      setSadMoodCheckins([]);
       return;
     }
 
-    const today = new Date().toISOString().split("T")[0];
-    const [masterTracks, curRes, studRes, attRes, attHistoryRes, hardwareRes, typingRes] = await Promise.all([
+    const today = dateInputValue();
+    const [masterTracks, curRes, studRes, attRes, attHistoryRes, hardwareRes, typingRes, moodRes] = await Promise.all([
       getMasterTracks(),
       getClassroomCurriculum(activeClassroomId),
       getTrainerClassroomStudents(activeClassroomId),
@@ -412,6 +455,7 @@ export default function TrainerDashboard() {
       getAttendanceSessions(activeClassroomId),
       getHardwareSessions(activeClassroomId),
       getTrainerClassroomTypingSummary(activeClassroomId),
+      getTrainerMoodCheckins(activeClassroomId, today, "sad"),
     ]);
 
     if (curRes.data) setModules(applyClassroomCurriculum(modulesFromTracks(masterTracks), curRes.data));
@@ -420,6 +464,7 @@ export default function TrainerDashboard() {
     if (attHistoryRes.data) setAttendanceSessions(attHistoryRes.data);
     if (hardwareRes.data) setHardwareSessions(hardwareRes.data);
     if (typingRes.data) setTypingSummary(typingRes.data);
+    if (moodRes.data) setSadMoodCheckins(moodRes.data);
   }, [activeClassroomId]);
 
   const loadTrainerProfile = useCallback(async () => {
@@ -712,6 +757,7 @@ export default function TrainerDashboard() {
               attendanceSessions={attendanceSessions}
               hardwareSessions={hardwareSessions}
               typingSummary={typingSummary}
+              sadMoodCheckins={sadMoodCheckins}
             />
           )}
           {activeView === "curriculum" && (
@@ -769,6 +815,13 @@ export default function TrainerDashboard() {
               classroomName={activeClassroom.name}
               typingSummary={typingSummary}
               hardwareSessions={hardwareSessions}
+            />
+          )}
+          {activeView === "wellbeing" && (
+            <StudentWellbeing
+              classroomId={activeClassroom.id}
+              classroomName={activeClassroom.name}
+              initialItems={sadMoodCheckins}
             />
           )}
           {activeView === "weekly-report" && <WeeklyReport classroom={activeClassroom} notify={setNotice} />}
@@ -908,6 +961,7 @@ function Overview({
   attendanceSessions,
   hardwareSessions,
   typingSummary,
+  sadMoodCheckins,
 }: {
   go: (view: View) => void;
   activeLessons: number;
@@ -918,6 +972,7 @@ function Overview({
   attendanceSessions: AttendanceSessionSummary[];
   hardwareSessions: HardwareSession[];
   typingSummary: TrainerTypingSummary;
+  sadMoodCheckins: TrainerMoodCheckin[];
 }) {
   const attendanceMarked = Object.keys(attendance).length;
   const presentCount = Object.values(attendance).filter((status) => status === "present").length;
@@ -925,21 +980,10 @@ function Overview({
     .map((student) => student.progressPercent)
     .filter((value): value is number => value !== null);
   const progressAverage = progressValues.length ? Math.round(progressValues.reduce((total, value) => total + value, 0) / progressValues.length) : null;
-  const needAttention = studentsList.filter((student) => (student.progressPercent ?? 100) < 50 || (student.attendancePercent ?? 100) < 70).length;
+  const needAttention = sadMoodCheckins.length;
   const latestAttendance = attendanceSessions[0] ?? null;
   const latestHardware = hardwareSessions[0] ?? null;
-  const attentionItems = [
-    ...studentsList
-      .filter((student) => (student.progressPercent ?? 100) < 50 || (student.attendancePercent ?? 100) < 70)
-      .slice(0, 3)
-      .map((student) => ({
-        title: student.name,
-        detail: `${student.progressSummary} progress · ${student.attendancePercent === null ? "No attendance data" : `${student.attendancePercent}% attendance`}`,
-      })),
-    ...(hardwareSessions.length
-      ? []
-      : [{ title: "Hardware session", detail: "No physical hardware session recorded yet" }]),
-  ];
+  const attentionItems = sadMoodCheckins.slice(0, 3);
   const activityItems = [
     latestAttendance
       ? {
@@ -1068,12 +1112,23 @@ function Overview({
           </div>
           <div className="mt-4 space-y-3">
             {attentionItems.length ? attentionItems.map((item) => (
-              <Attention key={`${item.title}-${item.detail}`} title={item.title} detail={item.detail} />
+              <Attention
+                key={item.studentId}
+                title={item.studentName}
+                detail={`${new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${feelingSummary(item)}`}
+              />
             )) : (
               <p className="rounded-xl bg-muted/65 p-3 text-sm text-muted-foreground">
-                No low-progress, low-attendance, or missing-hardware signal is showing right now.
+                No student has checked in as sad today.
               </p>
             )}
+            <button
+              onClick={() => go("wellbeing")}
+              className="inline-flex w-full items-center justify-between rounded-xl border border-border px-3 py-2 text-sm font-bold text-primary transition hover:border-primary hover:bg-blue-50"
+            >
+              View wellbeing list
+              <ChevronRight size={17} />
+            </button>
           </div>
         </Card>
       </div>
@@ -1150,6 +1205,11 @@ function Attention({ title, detail }: { title: string; detail: string }) {
       <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>
     </div>
   );
+}
+function feelingSummary(item: TrainerMoodCheckin) {
+  const sadText = `${item.sadCount} ${item.sadCount === 1 ? "time" : "times"}`;
+  const happyText = `${item.happyCount} ${item.happyCount === 1 ? "time" : "times"}`;
+  return `Felt sad ${sadText} and happy ${happyText}`;
 }
 function Activity({ text, time }: { text: string; time: string }) {
   return (
@@ -2819,7 +2879,7 @@ function Attendance({
   attendanceSessions: AttendanceSessionSummary[];
   onChanged: () => void | Promise<void>;
 }) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = dateInputValue();
   async function saveSession() {
     const records: AttendanceRecord[] = studentsList.map((student) => ({
       studentId: student.id,
@@ -3195,6 +3255,8 @@ function StudentAccountTools({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [usernameError, setUsernameError] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [usernameMessage, setUsernameMessage] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
   const [usernameBusy, setUsernameBusy] = useState(false);
   const [passwordBusy, setPasswordBusy] = useState(false);
   const displayedUsername = newUsername || (selectedUsernameStudent?.username ?? "");
@@ -3202,6 +3264,7 @@ function StudentAccountTools({
   async function submitUsername(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setUsernameError("");
+    setUsernameMessage("");
     const usernameToSave = displayedUsername.trim();
     if (classroom.assignmentRole !== "lead") return setUsernameError("Only the Lead Trainer can update student accounts.");
     if (!accessToken) return setUsernameError("Your session has expired. Please sign in again.");
@@ -3225,6 +3288,7 @@ function StudentAccountTools({
       return;
     }
     setNewUsername("");
+    setUsernameMessage(`Username changed to ${usernameToSave}.`);
     notify("Student username updated.");
     await onChanged();
   }
@@ -3232,6 +3296,7 @@ function StudentAccountTools({
   async function submitPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPasswordError("");
+    setPasswordMessage("");
     if (classroom.assignmentRole !== "lead") return setPasswordError("Only the Lead Trainer can update student accounts.");
     if (!accessToken) return setPasswordError("Your session has expired. Please sign in again.");
     if (!effectivePasswordStudentId) return setPasswordError("Choose a student.");
@@ -3256,6 +3321,7 @@ function StudentAccountTools({
     }
     setPassword("");
     setConfirmPassword("");
+    setPasswordMessage("Password changed successfully.");
     notify("Student password updated.");
     await onChanged();
   }
@@ -3275,21 +3341,25 @@ function StudentAccountTools({
               <div className="mt-4 space-y-4">
                 <label className="block text-sm font-bold">
                   Student
-                  <select
+                  <SearchableSelect
                     value={effectiveUsernameStudentId}
-                    onChange={(event) => {
-                      setUsernameStudentId(event.target.value);
+                    onChange={(value) => {
+                      setUsernameStudentId(value);
                       setNewUsername("");
                       setUsernameError("");
+                      setUsernameMessage("");
                     }}
-                    className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal"
-                  >
-                    {studentsList.map((student) => (
-                      <option key={student.id} value={student.id}>
-                        {student.name}{student.username ? ` · ${student.username}` : ""}
-                      </option>
-                    ))}
-                  </select>
+                    className="mt-1"
+                    placeholder="Choose student"
+                    searchPlaceholder="Search students or usernames..."
+                    emptyMessage="No students match."
+                    options={studentsList.map((student) => ({
+                      value: student.id,
+                      label: `${student.name}${student.username ? ` · ${student.username}` : ""}`,
+                      description: student.username ? "Student username" : undefined,
+                      searchText: `${student.name} ${student.username ?? ""}`,
+                    }))}
+                  />
                 </label>
                 <label className="block text-sm font-bold">
                   Username
@@ -3300,7 +3370,8 @@ function StudentAccountTools({
                     className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal"
                   />
                 </label>
-                {usernameError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{usernameError}</p>}
+                <AccountConfirmation type="success" message={usernameMessage} />
+                <AccountConfirmation type="error" message={usernameError} />
                 <button disabled={usernameBusy} type="submit" className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-60">
                   <User size={16} />
                   {usernameBusy ? "Saving..." : "Save username"}
@@ -3313,22 +3384,26 @@ function StudentAccountTools({
               <div className="mt-4 space-y-4">
                 <label className="block text-sm font-bold">
                   Student
-                  <select
+                  <SearchableSelect
                     value={effectivePasswordStudentId}
-                    onChange={(event) => {
-                      setPasswordStudentId(event.target.value);
+                    onChange={(value) => {
+                      setPasswordStudentId(value);
                       setPassword("");
                       setConfirmPassword("");
                       setPasswordError("");
+                      setPasswordMessage("");
                     }}
-                    className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal"
-                  >
-                    {studentsList.map((student) => (
-                      <option key={student.id} value={student.id}>
-                        {student.name}{student.username ? ` · ${student.username}` : ""}
-                      </option>
-                    ))}
-                  </select>
+                    className="mt-1"
+                    placeholder="Choose student"
+                    searchPlaceholder="Search students or usernames..."
+                    emptyMessage="No students match."
+                    options={studentsList.map((student) => ({
+                      value: student.id,
+                      label: `${student.name}${student.username ? ` · ${student.username}` : ""}`,
+                      description: student.username ? "Student username" : undefined,
+                      searchText: `${student.name} ${student.username ?? ""}`,
+                    }))}
+                  />
                 </label>
                 <label className="block text-sm font-bold">
                   New password
@@ -3338,7 +3413,8 @@ function StudentAccountTools({
                   Confirm new password
                   <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" minLength={6} placeholder="Confirm new password" autoComplete="new-password" className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal" />
                 </label>
-                {passwordError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{passwordError}</p>}
+                <AccountConfirmation type="success" message={passwordMessage} />
+                <AccountConfirmation type="error" message={passwordError} />
                 <button disabled={passwordBusy} type="submit" className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-60">
                   <KeyRound size={16} />
                   {passwordBusy ? "Saving..." : "Reset password"}
@@ -3353,6 +3429,20 @@ function StudentAccountTools({
         )}
       </Card>
     </>
+  );
+}
+
+function AccountConfirmation({ type, message }: { type: "success" | "error"; message: string }) {
+  if (!message) return null;
+  const isSuccess = type === "success";
+  return (
+    <div
+      role="status"
+      className={`flex items-start gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${isSuccess ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"}`}
+    >
+      {isSuccess ? <Check size={16} className="mt-0.5 shrink-0" /> : <CircleAlert size={16} className="mt-0.5 shrink-0" />}
+      <span>{message}</span>
+    </div>
   );
 }
 
@@ -3629,7 +3719,7 @@ function Badges({
   studentsList: StudentSummary[];
   classroomName: string;
 }) {
-  const [student, setStudent] = useState(studentsList[0]?.name || "");
+  const [student, setStudent] = useState(studentsList[0]?.id || "");
   const [badge, setBadge] = useState("Circuit Starter");
   const supported = [
     "Circuit Starter",
@@ -3649,15 +3739,20 @@ function Badges({
           </p>
           <label className="mt-5 block text-sm font-bold">
             Student
-            <select
+            <SearchableSelect
               value={student}
-              onChange={(e) => setStudent(e.target.value)}
-              className="mt-2 w-full rounded-xl border border-input bg-background px-3 py-2.5 font-normal"
-            >
-              {studentsList.map((item) => (
-                <option key={item.id}>{item.name}</option>
-              ))}
-            </select>
+              onChange={setStudent}
+              className="mt-2"
+              placeholder="Choose student"
+              searchPlaceholder="Search students or usernames..."
+              emptyMessage="No students match."
+              options={studentsList.map((item) => ({
+                value: item.id,
+                label: item.name,
+                description: item.username || undefined,
+                searchText: `${item.name} ${item.username ?? ""}`,
+              }))}
+            />
           </label>
           <label className="mt-4 block text-sm font-bold">
             Supported trainer badge
@@ -3673,12 +3768,14 @@ function Badges({
           </label>
           <button
             onClick={() => {
+              const selectedStudent = studentsList.find((item) => item.id === student);
+              const selectedStudentName = selectedStudent?.name || "Student";
               setAwards([
                 ...awards,
-                { student, badge, date: new Date().toLocaleDateString() },
+                { student: selectedStudentName, badge, date: new Date().toLocaleDateString() },
               ]);
               notify(
-                `${badge} awarded to ${student}. This record cannot be edited or revoked here.`,
+                `${badge} awarded to ${selectedStudentName}. This record cannot be edited or revoked here.`,
               );
             }}
             className="mt-5 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
@@ -3715,6 +3812,207 @@ function Badges({
     </>
   );
 }
+
+function StudentWellbeing({
+  classroomId,
+  classroomName,
+  initialItems,
+}: {
+  classroomId: string;
+  classroomName: string;
+  initialItems: TrainerMoodCheckin[];
+}) {
+  const today = dateInputValue();
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [visibleMood, setVisibleMood] = useState<StudentMood>("sad");
+  const [items, setItems] = useState<TrainerMoodCheckin[]>(initialItems);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const selectedParts = dateParts(selectedDate);
+  const selectableYears = Array.from({ length: 6 }, (_, index) => new Date().getFullYear() - index);
+  const selectableDays = Array.from({ length: daysInMonth(selectedParts.year, selectedParts.month) }, (_, index) => index + 1);
+  const activeDateButton = selectedDate < today ? "previous" : selectedDate > today ? "next" : "today";
+  const dateButtonClass = (button: "previous" | "today" | "next") =>
+    `h-9 cursor-pointer rounded-xl px-3 text-xs font-bold transition ${
+      activeDateButton === button
+        ? "bg-primary text-primary-foreground hover:brightness-95"
+        : "border border-border text-foreground hover:border-primary hover:bg-blue-50"
+    }`;
+  const updateSelectedDatePart = (part: "day" | "month" | "year", value: number) => {
+    setSelectedDate(dateValueFromParts(
+      part === "year" ? value : selectedParts.year,
+      part === "month" ? value : selectedParts.month,
+      part === "day" ? value : selectedParts.day,
+    ));
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMood() {
+      if (!selectedDate) {
+        setItems([]);
+        setError("");
+        return;
+      }
+      if (selectedDate === today && visibleMood === "sad") {
+        setItems(initialItems);
+        setError("");
+        return;
+      }
+      setLoading(true);
+      setError("");
+      const result = await getTrainerMoodCheckins(classroomId, selectedDate, visibleMood);
+      if (cancelled) return;
+      setLoading(false);
+      if (result.error) {
+        setItems([]);
+        setError(result.error);
+        return;
+      }
+      setItems(result.data ?? []);
+    }
+    void loadMood();
+    return () => {
+      cancelled = true;
+    };
+  }, [classroomId, initialItems, selectedDate, today, visibleMood]);
+
+  return (
+    <>
+      <PageHeading eyebrow={`${classroomName} · wellbeing`} title="Student wellbeing" />
+      <Card>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-muted-foreground">
+              Showing one daily feeling per student. If a student chooses Sad at least once, Sad replaces Happy for that day.
+            </p>
+            <p className="mt-2 font-display text-4xl font-bold text-foreground">
+              {items.length}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {visibleMood === "sad"
+                ? (items.length === 1 ? "student needs care for this date" : "students need care for this date")
+                : (items.length === 1 ? "student checked in happy for this date" : "students checked in happy for this date")}
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:items-end">
+            <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold ${visibleMood === "sad" ? "bg-amber-50 text-amber-700" : "bg-green-50 text-green-700"}`}>
+              <span aria-hidden="true">{visibleMood === "sad" ? "😔" : "😊"}</span>
+              Viewing {visibleMood}
+            </span>
+            <button
+              type="button"
+              onClick={() => setVisibleMood((current) => current === "sad" ? "happy" : "sad")}
+              className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-bold text-primary transition hover:border-primary hover:bg-blue-50"
+            >
+              {visibleMood === "sad" ? "See happy students" : "See sad students"}
+            </button>
+            <div className="grid gap-2 text-sm font-bold text-foreground">
+              <div className="flex items-center gap-2">
+                <CalendarDays className="text-primary" size={18} />
+                Change date
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-bold text-muted-foreground">
+                  {displayDateValue(selectedDate)}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <label className="grid gap-1 text-xs font-bold text-muted-foreground">
+                  Day
+                  <select
+                    value={selectedParts.day}
+                    onChange={(event) => updateSelectedDatePart("day", Number(event.target.value))}
+                    className="h-11 cursor-pointer rounded-xl border border-border bg-background px-3 text-sm font-bold text-foreground outline-none transition hover:border-primary hover:bg-blue-50 focus:border-primary focus:ring-4 focus:ring-blue-100"
+                  >
+                    {selectableDays.map((day) => (
+                      <option key={day} value={day}>{day}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-xs font-bold text-muted-foreground">
+                  Month
+                  <select
+                    value={selectedParts.month}
+                    onChange={(event) => updateSelectedDatePart("month", Number(event.target.value))}
+                    className="h-11 cursor-pointer rounded-xl border border-border bg-background px-3 text-sm font-bold text-foreground outline-none transition hover:border-primary hover:bg-blue-50 focus:border-primary focus:ring-4 focus:ring-blue-100"
+                  >
+                    {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
+                      <option key={month} value={month}>{month}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-xs font-bold text-muted-foreground">
+                  Year
+                  <select
+                    value={selectedParts.year}
+                    onChange={(event) => updateSelectedDatePart("year", Number(event.target.value))}
+                    className="h-11 cursor-pointer rounded-xl border border-border bg-background px-3 text-sm font-bold text-foreground outline-none transition hover:border-primary hover:bg-blue-50 focus:border-primary focus:ring-4 focus:ring-blue-100"
+                  >
+                    {selectableYears.map((year) => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate((current) => shiftDateValue(current, -1))}
+                  className={dateButtonClass("previous")}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(today)}
+                  className={dateButtonClass("today")}
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate((current) => shiftDateValue(current, 1))}
+                  className={dateButtonClass("next")}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+      <div className="mt-6 grid gap-3">
+        {loading && <p className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">Loading wellbeing check-ins...</p>}
+        {error && <p className="rounded-xl bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</p>}
+        {!loading && !error && items.length ? items.map((item) => (
+          <Card key={item.studentId} className="p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`flex h-12 w-12 items-center justify-center rounded-xl text-2xl ${item.mood === "sad" ? "bg-amber-50" : "bg-green-50"}`} aria-hidden="true">
+                  {item.mood === "sad" ? "😔" : "😊"}
+                </div>
+                <div>
+                  <p className="font-bold text-foreground">{item.studentName}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Latest {item.mood} check-in at {new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                </div>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-bold ${item.mood === "sad" ? "bg-amber-50 text-amber-700" : "bg-green-50 text-green-700"}`}>
+                {feelingSummary(item)}
+              </span>
+            </div>
+          </Card>
+        )) : null}
+        {!loading && !error && !items.length && (
+          <p className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
+            No {visibleMood} student check-ins were recorded for this date.
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
 function Reports({
   studentsList,
   classroomName,

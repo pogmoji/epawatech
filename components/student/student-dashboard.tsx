@@ -12,6 +12,7 @@ import {
   ChevronRight,
   ClipboardList,
   Edit3,
+  Frown,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -19,6 +20,7 @@ import {
   MessageSquareText,
   Save,
   School,
+  Smile,
   Sparkles,
   Target,
   Trophy,
@@ -46,6 +48,7 @@ import {
 import { getUniversalChallengeRoadmap, setUniversalChallengeProgress, submitUniversalChallenge, type ChallengeRoadmapLevel } from "@/lib/api/student/universal-challenges";
 import { getStudentProgress, type ActivityProgress } from "@/lib/api/student/progress";
 import { getClassroomTypingLeaderboard, getMyTypingAttempts, summarizeTypingAttempts, type TypingAttempt, type TypingSummary } from "@/lib/api/student/typing";
+import { createMyStudentMoodCheckin, type StudentMood } from "@/lib/api/student/mood";
 
 type View = "overview" | "learn" | "assignments" | "challenges" | "projects" | "progress" | "profile";
 
@@ -86,10 +89,11 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
 ];
 
 const ICONS: Record<string, typeof BookOpen> = { Monitor: BookOpen, FileText: ClipboardList };
+const MOOD_PROMPT_TIMEOUT_MS = 3 * 60 * 1000;
 
 export default function StudentDashboard() {
   const router = useRouter();
-  const { profile, refreshProfile, signOut } = useAuth();
+  const { profile, refreshProfile, session, signOut, user } = useAuth();
   const [view, setView] = useState<View>("profile");
   const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -103,6 +107,10 @@ export default function StudentDashboard() {
   const [feedbackError, setFeedbackError] = useState("");
   const [challengeRoadmap, setChallengeRoadmap] = useState<ChallengeRoadmapLevel[]>([]);
   const [challengeError, setChallengeError] = useState("");
+  const [moodAnswered, setMoodAnswered] = useState(false);
+  const moodSessionKey = user?.id && session?.access_token
+    ? `student-mood-checkin:${user.id}:${session.access_token.slice(-16)}`
+    : "";
 
   const studentName = studentProfile?.fullName || profile?.full_name?.trim() || profile?.username || "Student";
   const initials = studentName
@@ -212,6 +220,21 @@ export default function StudentDashboard() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    if (!moodSessionKey) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMoodAnswered(window.sessionStorage.getItem(moodSessionKey) === "done");
+  }, [moodSessionKey]);
+
+  useEffect(() => {
+    if (!moodSessionKey || moodAnswered) return;
+    const timer = window.setTimeout(() => {
+      window.sessionStorage.setItem(moodSessionKey, "done");
+      setMoodAnswered(true);
+    }, MOOD_PROMPT_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [moodAnswered, moodSessionKey]);
+
   const totals = useMemo(() => progressTotals(state.effectiveTracks, state.progress), [state.effectiveTracks, state.progress]);
   const present = state.attendance.filter((record) => record.status === "present").length;
   const attendancePct = state.attendance.length ? Math.round((present / state.attendance.length) * 100) : null;
@@ -224,6 +247,12 @@ export default function StudentDashboard() {
   const handleSignOut = async () => {
     const result = await signOut();
     if (!result.error) router.push("/");
+  };
+
+  const handleMoodAnswered = () => {
+    if (moodSessionKey) window.sessionStorage.setItem(moodSessionKey, "done");
+    setMoodAnswered(true);
+    window.setTimeout(() => window.location.reload(), 250);
   };
 
   const handleJoin = async (event: FormEvent) => {
@@ -334,10 +363,12 @@ export default function StudentDashboard() {
               profileError={profileError}
               feedback={feedback}
               feedbackError={feedbackError}
+              moodAnswered={moodAnswered}
               onFeedbackChanged={(nextFeedback) => {
                 setFeedback(nextFeedback);
                 setFeedbackError("");
               }}
+              onMoodAnswered={handleMoodAnswered}
               onProfileChanged={(nextProfile) => {
                 setStudentProfile(nextProfile);
                 setProfileError("");
@@ -874,7 +905,9 @@ function ProfilePanel({
   profileError,
   feedback,
   feedbackError,
+  moodAnswered,
   onFeedbackChanged,
+  onMoodAnswered,
   onProfileChanged,
 }: {
   studentName: string;
@@ -884,7 +917,9 @@ function ProfilePanel({
   profileError: string;
   feedback: StudentFeedback[];
   feedbackError: string;
+  moodAnswered: boolean;
   onFeedbackChanged: (feedback: StudentFeedback[]) => void;
+  onMoodAnswered: () => void;
   onProfileChanged: (profile: StudentProfileDetails) => void;
 }) {
   const [fullName, setFullName] = useState(studentName);
@@ -895,6 +930,8 @@ function ProfilePanel({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [moodSaving, setMoodSaving] = useState<StudentMood | null>(null);
+  const [moodError, setMoodError] = useState("");
 
   useEffect(() => {
     if (!profileDetails) return;
@@ -937,8 +974,57 @@ function ProfilePanel({
     setMessage("Avatar updated.");
   }
 
+  async function submitMood(mood: StudentMood) {
+    setMoodSaving(mood);
+    setMoodError("");
+    const result = await createMyStudentMoodCheckin({
+      classroomId: enrollment?.classroomId ?? null,
+      mood,
+    });
+    setMoodSaving(null);
+    if (result.error) {
+      setMoodError(result.error);
+      return;
+    }
+    onMoodAnswered();
+  }
+
   return (
     <div className="space-y-5">
+      {!moodAnswered && (
+        <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <div className="grid gap-0 lg:grid-cols-[minmax(240px,.7fr)_minmax(0,1.3fr)]">
+            <div className="bg-[#FFF4D8] p-6 sm:p-8">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-amber-700">
+                <Sparkles size={15} />
+                Daily check-in
+              </div>
+              <h2 className="mt-3 font-display text-3xl font-bold text-foreground">
+                How are you feeling today, {studentName.split(" ")[0]}?
+              </h2>
+            </div>
+            <div className="grid gap-4 p-6 sm:grid-cols-2 sm:p-8">
+              <MoodButton
+                label="Happy"
+                emoji="😊"
+                icon={Smile}
+                saving={moodSaving === "happy"}
+                disabled={Boolean(moodSaving)}
+                onClick={() => void submitMood("happy")}
+              />
+              <MoodButton
+                label="Sad"
+                emoji="😔"
+                icon={Frown}
+                saving={moodSaving === "sad"}
+                disabled={Boolean(moodSaving)}
+                onClick={() => void submitMood("sad")}
+              />
+              {moodError && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 sm:col-span-2">{moodError}</p>}
+            </div>
+          </div>
+        </section>
+      )}
       <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="grid gap-0 lg:grid-cols-[minmax(280px,.8fr)_minmax(0,1.2fr)]">
           <div className="bg-[#E8F7F4] p-6 sm:p-8">
@@ -1042,6 +1128,39 @@ function ProfilePanel({
         </section>
       </div>
     </div>
+  );
+}
+
+function MoodButton({
+  label,
+  emoji,
+  icon: Icon,
+  saving,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  emoji: string;
+  icon: typeof Smile;
+  saving: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="group flex min-h-44 flex-col items-center justify-center rounded-xl border-2 border-border bg-background p-5 text-center shadow-sm transition hover:border-primary hover:bg-blue-50 disabled:cursor-wait disabled:opacity-70"
+    >
+      <span className="inline-flex items-center gap-2 text-lg font-bold text-foreground">
+        <Icon size={22} />
+        {saving ? "Saving..." : label}
+      </span>
+      <span className="mt-4 text-7xl leading-none transition group-hover:scale-105" aria-hidden="true">
+        {emoji}
+      </span>
+    </button>
   );
 }
 

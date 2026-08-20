@@ -38,6 +38,7 @@ import { ProfileCorrections } from "@/components/admin/profile-corrections";
 import { TrainerPasswordReset } from "@/components/admin/trainer-password-reset";
 import { useAuth } from "@/components/auth-provider";
 import { BrandLogo } from "@/components/brand-logo";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import type { LessonActivity } from "@/lib/curriculum";
 import type { ChallengeSubmissionType } from "@/lib/api/student/universal-challenges";
 import { createMasterLesson, deleteMasterLesson, getAdminMasterCurriculum, updateMasterLesson } from "@/lib/api/admin/master-curriculum";
@@ -891,7 +892,7 @@ function TrainersView(p: ContentProps) {
         )}
       </div>
     );
-  })}</ListCard><FormCard title="Assign trainer to cohort" onSubmit={p.onTrainerCohortSubmit} busy={p.busy} button="Assign trainer"><select value={p.cohortTrainer} onChange={(event) => p.setCohortTrainer(event.target.value)} className="input"><option value="">Choose active trainer</option>{p.activeTrainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.full_name || "Unnamed trainer"}</option>)}</select><select value={p.trainerCohort} onChange={(event) => p.setTrainerCohort(event.target.value)} className="input"><option value="">Choose cohort</option>{p.dashboard.cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{p.maps.centres.get(cohort.centre_id)?.name || "Centre"} / {cohort.name}</option>)}</select><select value={p.trainerCohortRole} onChange={(event) => p.setTrainerCohortRole(event.target.value as AssignmentRole)} className="input"><option value="lead">Lead trainer</option><option value="co_teacher">Co-teacher</option></select></FormCard></div>;
+  })}</ListCard><FormCard title="Assign trainer to cohort" onSubmit={p.onTrainerCohortSubmit} busy={p.busy} button="Assign trainer"><SearchableSelect value={p.cohortTrainer} onChange={p.setCohortTrainer} placeholder="Choose active trainer" searchPlaceholder="Search trainers..." emptyMessage="No active trainers match." options={p.activeTrainers.map((trainer) => ({ value: trainer.id, label: trainer.full_name || "Unnamed trainer", description: trainer.phone_number || trainer.username || undefined, searchText: `${trainer.full_name ?? ""} ${trainer.username ?? ""} ${trainer.phone_number ?? ""}` }))} /><SearchableSelect value={p.trainerCohort} onChange={p.setTrainerCohort} placeholder="Choose cohort" searchPlaceholder="Search cohorts..." emptyMessage="No cohorts match." options={p.dashboard.cohorts.map((cohort) => ({ value: cohort.id, label: `${p.maps.centres.get(cohort.centre_id)?.name || "Centre"} / ${cohort.name}`, description: cohort.status, searchText: `${cohort.name} ${cohort.status} ${p.maps.centres.get(cohort.centre_id)?.name ?? ""}` }))} /><select value={p.trainerCohortRole} onChange={(event) => p.setTrainerCohortRole(event.target.value as AssignmentRole)} className="input"><option value="lead">Lead trainer</option><option value="co_teacher">Co-teacher</option></select></FormCard></div>;
 }
 
 function ClassroomsView(p: ContentProps) {
@@ -1039,10 +1040,21 @@ function ClassroomsView(p: ContentProps) {
               )}
 
               <div className="flex flex-wrap items-center gap-2">
-                <select value={selectedTrainer} onChange={(event) => p.setClassroomTrainerSelections({ ...p.classroomTrainerSelections, [room.id]: event.target.value })} className="h-9 min-w-48 rounded-lg border border-border bg-background px-2 text-xs">
-                  <option value="">Choose cohort trainer</option>
-                  {eligible.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.full_name || "Unnamed trainer"}</option>)}
-                </select>
+                <SearchableSelect
+                  value={selectedTrainer}
+                  onChange={(value) => p.setClassroomTrainerSelections({ ...p.classroomTrainerSelections, [room.id]: value })}
+                  placeholder="Choose cohort trainer"
+                  searchPlaceholder="Search trainers..."
+                  emptyMessage="No eligible trainers match."
+                  className="min-w-56"
+                  buttonClassName="h-9 rounded-lg px-2 text-xs"
+                  options={eligible.map((trainer) => ({
+                    value: trainer.id,
+                    label: trainer.full_name || "Unnamed trainer",
+                    description: trainer.phone_number || trainer.username || undefined,
+                    searchText: `${trainer.full_name ?? ""} ${trainer.username ?? ""} ${trainer.phone_number ?? ""}`,
+                  }))}
+                />
                 <button disabled={p.busy} onClick={() => p.onStartClassroomEdit(room)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">
                   Edit
                 </button>
@@ -1084,10 +1096,19 @@ function ClassroomsView(p: ContentProps) {
           <option value="pending">Pending approval</option>
           <option value="active">Active now</option>
         </select>
-        <select value={p.classroomTrainer} onChange={(event) => p.setClassroomTrainer(event.target.value)} className="input">
-          <option value="">Optional lead trainer</option>
-          {p.eligibleTrainersForCohort(p.classroomCohort).map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.full_name || "Unnamed trainer"}</option>)}
-        </select>
+        <SearchableSelect
+          value={p.classroomTrainer}
+          onChange={p.setClassroomTrainer}
+          placeholder="Optional lead trainer"
+          searchPlaceholder="Search trainers..."
+          emptyMessage="No eligible trainers match."
+          options={p.eligibleTrainersForCohort(p.classroomCohort).map((trainer) => ({
+            value: trainer.id,
+            label: trainer.full_name || "Unnamed trainer",
+            description: trainer.phone_number || trainer.username || undefined,
+            searchText: `${trainer.full_name ?? ""} ${trainer.username ?? ""} ${trainer.phone_number ?? ""}`,
+          }))}
+        />
       </FormCard>
     </div>
   );
